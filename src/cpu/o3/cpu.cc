@@ -635,6 +635,7 @@ FullO3CPU<Impl>::tick()
     
 	for(ThreadID i = 0; i<numThreads; i++){
 		fmt_v[i]->BranchUpdate(isROBblocked_v[i], decode.getDecodeWidth());
+		fmt_v[i]->PrintEntry();	
 	}
 
 	//update total cycles
@@ -655,16 +656,17 @@ FullO3CPU<Impl>::tick()
         DPRINTF(Progress, "-------------------------------------------------- \n", total_cycle);
         DPRINTF(Progress, "Total Cycles :: %d \n", total_cycle);
 		
-		int l1, d1, br, w, b;
+		int l1, d1, br, w, b, total;
         
 		for(ThreadID i=0; i<numThreads; i++){
 			l1 = L1_miss_v[i]/decode.getDecodeWidth();
-   		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
+   		    d1 = D1_miss_v[i];
         	br = branch_miss_v[i]/decode.getDecodeWidth();
 			w =  wait_v[i]/decode.getDecodeWidth();
 			b =  base_v[i]/decode.getDecodeWidth();
-        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d\n"
-						  , i, b, l1, br, d1, w);
+			total = l1 + d1 + br + w + b;
+        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d, Total : %d\n"
+						  , i, b, l1, br, d1, w, total);
 		}
 	}    
 

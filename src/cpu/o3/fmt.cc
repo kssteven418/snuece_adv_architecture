@@ -36,7 +36,8 @@ void FMT::PrintEntry(){
 	std::cout<<"Fetch Ptr : " << fetch
 		<<" ::: Base : " << FMTtable[fetch].base
 		<<", Wait : " << FMTtable[fetch].wait
-		<<", L1miss : "<<FMTtable[fetch].L1<<std::endl;
+		<<", L1miss : "<<FMTtable[fetch].L1
+		<<", Branch : "<<FMTtable[dispatch_head].branch<<std::endl;
 #endif
 }
 
@@ -107,6 +108,7 @@ void FMT::BranchUpdate(bool isROBblocked){
 	
 	//avoid duplication count when ROB is blocked
 	//due to Load miss or Store miss
+
 	if(isROBblocked){
 		// std::cout<<"Mispred on D miss\n";
 		return;
@@ -138,6 +140,9 @@ void FMT::BranchUpdate(bool isROBblocked, int num){
 	
 	//avoid duplication count when ROB is blocked
 	//due to Load miss or Store miss
+	if(!isROBblocked)
+	//	std::cout<<"ARGHHHHHH"<<isROBblocked<<std::endl;
+	
 	if(isROBblocked){
 		// std::cout<<"Mispred on D miss\n";
 		return;

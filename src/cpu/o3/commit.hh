@@ -212,6 +212,9 @@ class DefaultCommit
     /** Deschedules a thread from scheduling */
     void deactivateThread(ThreadID tid);
 
+	//SehoonSMT
+	void checkROBHead();
+
     /** Ticks the commit stage, which tries to commit instructions. */
     void tick();
 
@@ -304,6 +307,7 @@ class DefaultCommit
 
     /** Marks completed instructions using information sent from IEW. */
     void markCompletedInsts();
+
 
     /** Gets the thread to commit, based on the SMT policy. */
     ThreadID getCommittingThread();

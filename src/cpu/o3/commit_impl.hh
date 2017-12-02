@@ -650,10 +650,39 @@ DefaultCommit<Impl>::squashAfter(ThreadID tid, DynInstPtr &head_inst)
     squashAfterInst[tid] = head_inst;
 }
 
+//SehoonSMT
+//CHECK IF ROB HEAD IS BLOCKED///////////////////////
+template <class Impl>
+void
+DefaultCommit<Impl>::checkROBHead(){
+	
+
+	for(ThreadID tid=0; tid<numThreads; tid++){
+		cpu->isROBblocked_v[tid] = false;
+
+        if (commitStatus[tid] == Running ||
+            commitStatus[tid] == Idle ||
+            commitStatus[tid] == FetchTrapPending) {
+
+            if (!rob->isHeadReady(tid)) {
+				
+				//if(!head_inst->isSquashed() && (head_inst->isLoad() || head_inst->isStore())){
+				cpu->D1_miss_v[tid] += 1;
+				cpu->isROBblocked_v[tid] = true;
+            }
+        }
+    }
+
+}
+
+
 template <class Impl>
 void
 DefaultCommit<Impl>::tick()
 {
+	//SehoonSMT : check whether ROB head is blocked or not
+	checkROBHead();
+
     wroteToTimeBuffer = false;
     _nextStatus = Inactive;
 
@@ -917,7 +946,6 @@ DefaultCommit<Impl>::commit()
 			
 			//debug
 			else{ 
-				DPRINTF(SMT_Commit, "NOT FOUND '''at FMT : tid %d\n", tid);
 			}
 			//***********************************************************//
 
@@ -1044,7 +1072,8 @@ DefaultCommit<Impl>::commitInsts()
 		// !!!!!!!!!!!!!!!!!!!!!!!!!MUST BE MODIFIED!!!!!!!!!!!!!!!!!!!!!
 
 		if (commit_thread == InvalidThreadID || !rob->isHeadReady(commit_thread)){
-		
+	
+			/*
 			if(commit_thread != InvalidThreadID && !rob->isEmpty(commit_thread)){
 
 				head_inst = rob->readHeadInst(commit_thread);
@@ -1070,22 +1099,16 @@ DefaultCommit<Impl>::commitInsts()
 				}
 
 			}    
-			
+			*/
+
 			break;
 			
 		}    
 		
 		head_inst = rob->readHeadInst(commit_thread);
 		
-		/*   
-			 if(cpu->isROBblocked){
-			 DPRINTF(MyDebug, "Blocked Inst Seq : %d, is Mem ? %s \n", 
-			 head_inst->seqNum, head_inst->isLoad() ? "Load" : 
-			 head_inst->isStore() ? "Store" : "No");  
-			 }
-		 */
-			
-		cpu->isROBblocked = false;
+		//cpu->isROBblocked = false;
+		//cpu->isROBblocked_v[commit_thread] = false;
 		
 		//////////////////////////////////////////////////////////////////////
 
@@ -1657,6 +1680,8 @@ DefaultCommit<Impl>::updateComInstStats(DynInstPtr &inst)
 //  SMT COMMIT POLICY MAINTAINED HERE //
 //                                    //
 ////////////////////////////////////////
+
+
 template <class Impl>
 ThreadID
 DefaultCommit<Impl>::getCommittingThread()

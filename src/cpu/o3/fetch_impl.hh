@@ -1188,7 +1188,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 			//DPRINTF(SMT, "MISS' %d : %d\n", i, fetchWidth);
     		
 			//TLB miss
-			if (fetchStatus[i] == ItlbWait) {
+			if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
 				DPRINTF(SMT, "TLB MISS %d : %d\n", i, fetchWidth);
 				if(!cpu->fmt_v[i]->IsPipelineEmpty()){
 					cpu->fmt_v[i]->CountTLB(fetchWidth);
@@ -1199,16 +1199,17 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 					cpu->tlb_miss_v[i]+=fetchWidth;
 				}
 			}
-    	 	if(fetchStatus[i] == IcacheWaitResponse) {
+    	 	if(fetchStatus[i] == IcacheWaitResponse && !cpu->isROBblocked_v[i]) {
 				DPRINTF(SMT, "CACHE MISS %d : %d\n", i, fetchWidth);
 				if(!cpu->fmt_v[i]->IsPipelineEmpty()){
 					cpu->fmt_v[i]->CountL1(fetchWidth);
 					DPRINTF(SMT, "%d :: ", i); 
 					cpu->fmt_v[i]->PrintEntry();
 				}
-			}
-			else{
-				cpu->L1_miss_v[i]+=fetchWidth;
+
+				else{
+					cpu->L1_miss_v[i]+=fetchWidth;
+				}
 			}
 		}
 		///////////////////////////////////////////////////////////////////////////////
@@ -1223,7 +1224,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 	///////////////////COUNT MISS FOR SOMETHING BEING FETCHED/////////////////////////	 
 
     for (ThreadID i = 0; i < numThreads; ++i) {
-    	if (fetchStatus[i] == ItlbWait) {
+    	if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
 			//if branch not empty
 			DPRINTF(SMT, "TLB MISS %d : %d\n", i, fetchWidth);
 			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
@@ -1236,7 +1237,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 			}
 		}
     
-		else if (fetchStatus[i] == IcacheWaitResponse) {
+		else if (fetchStatus[i] == IcacheWaitResponse && !cpu->isROBblocked_v[i]) {
 			DPRINTF(SMT, "CACHE MISS %d : %d\n", i, fetchWidth);
 			//if branch not empty
 			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
@@ -1251,7 +1252,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		}
 		// Not selected even if not blocked by I-cache or TLB
 		// It is considered as WAITING event
-		else if (i!=tid){
+		else if (i!=tid && !cpu->isROBblocked_v[i]){
 			DPRINTF(SMT, "WAIT %d : %d\n", i, fetchWidth);
 			//if branch not empty
 			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
@@ -1303,7 +1304,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
             if (fetchStatus[tid] == IcacheWaitResponse){
                 ++icacheStallCycles;
 		        
-				//Sehoon : count L1 miss event
+				//!Sehoon : count L1 miss event
 				/***************************/
 				if(cpu->mFMT.IsPipelineEmpty()){
    	            	//if pipeline empty, add miss penalty directly to the global variable
@@ -1406,7 +1407,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		
 		count--;
 		DPRINTF(SMT, "tid : %d\n", tid);
-		
+			
 		if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
 			cpu->fmt_v[tid]->CountBase();
 		}else{
