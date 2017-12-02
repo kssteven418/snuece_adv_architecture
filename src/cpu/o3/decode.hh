@@ -201,7 +201,8 @@ class DefaultDecode
      * squashing and clears block/unblock signals as needed.
      */
     unsigned squash(ThreadID tid);
-
+	
+    unsigned getDecodeWidth() { return decodeWidth; }
   private:
     // Interfaces to objects outside of decode.
     /** CPU interface. */

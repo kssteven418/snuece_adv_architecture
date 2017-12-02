@@ -3,14 +3,14 @@
 #include <iostream>
 
 #define FMTDEBUG 0
-#define FMTDEBUG_SMT 1
+#define FMTDEBUG_SMT 0
 
 FMT::FMT(){
 	ResetAll();
 }
 
 void FMT::ResetAll(){
-	std::cout << "size: " << size << std::endl;
+	
 	for(int i=0; i<size; i++)
 		ResetEntry(i);
 	dispatch_head = 0;
@@ -33,7 +33,8 @@ void FMT::ResetEntry(int i){
 
 void FMT::PrintEntry(){
 #if FMTDEBUG_SMT
-	std::cout<<"Base : " << FMTtable[fetch].base
+	std::cout<<"Fetch Ptr : " << fetch
+		<<" ::: Base : " << FMTtable[fetch].base
 		<<", Wait : " << FMTtable[fetch].wait
 		<<", L1miss : "<<FMTtable[fetch].L1<<std::endl;
 #endif
@@ -56,6 +57,11 @@ int FMT::ForwardFetchPtr(InstSeqNum seq){
 
 	//set instruction sequence entry
 	FMTtable[fetch].instSeq = seq;
+
+#if FMTDEBUG_SMT
+	// std::cout<<"Fetch Ptr at "<<fetch<<std::endl;
+#endif
+
 	return temp;
 }
 
@@ -109,6 +115,9 @@ void FMT::BranchUpdate(bool isROBblocked){
 	if(dispatch_head==dispatch_tail){ // no branches in backend
 		return;
 	}
+
+	//count increase 1 per cycle
+
 	int _head = (dispatch_head+1)%size;
 	while(true){
 		if(!FMTtable[_head].mispredBit){
@@ -124,6 +133,39 @@ void FMT::BranchUpdate(bool isROBblocked){
 		_head = (_head+1)%size;
 	}
 }
+
+void FMT::BranchUpdate(bool isROBblocked, int num){
+	
+	//avoid duplication count when ROB is blocked
+	//due to Load miss or Store miss
+	if(isROBblocked){
+		// std::cout<<"Mispred on D miss\n";
+		return;
+	}
+
+	if(dispatch_head==dispatch_tail){ // no branches in backend
+		return;
+	}
+
+	//count increase 'dispatchWidth number' per cycle
+
+	int _head = (dispatch_head+1)%size;
+	while(true){
+		if(!FMTtable[_head].mispredBit){
+			FMTtable[_head].branch += num;
+		}
+		else{
+			if(correct_way_fetching){// fetching correct way
+									 // add up penalty until next dispatch
+				FMTtable[_head].branch += num;
+			}
+		}
+		if(_head==dispatch_tail) break;
+		_head = (_head+1)%size;
+	}
+}
+
+
 
 //set MispredBit on the disp tail pointer
 void FMT::SetMispredBitOnTail(){
@@ -165,6 +207,11 @@ bool FMT::IsInPipeline(int entry){
 
 //True if the pipeline is empty
 bool FMT::IsPipelineEmpty(){
+
+#if FMTDEBUG_SMT
+	std::cout<<fetch<<" "<<dispatch_head<<std::endl;
+#endif
+
 	return dispatch_head==fetch;
 }
 
@@ -266,31 +313,5 @@ void FMT::DebugPrint(){
 #endif
 }
 
-
-void FMT::DebugPrint2(){
-	for(int i=0; i<size; i++){
-	/*
-		if(i==fetch) DPRINTF(FMT, "F");
-		if(i==dispatch_tail) DPRINTF(FMT, "T");
-		if(i==dispatch_head) DPRINTF(FMT, "H");
-		if(i!=fetch && i!=dispatch_tail && i!=dispatch_head) DPRINTF(FMT, " ");
-		DPRINTF(FMT, "(%d : %d)", i, FMTtable[i].instSeq);
-	*/
-
-#if FMTDEBUG	
-		std::cout << "(" << i << " : " << FMTtable[i].instSeq << ")";
-		if(i==fetch) std::cout << "F";
-		if(i==dispatch_tail) std::cout<<"T";
-		if(i==dispatch_head) std::cout<<"H";
-		if(i!=fetch && i!=dispatch_tail && i!=dispatch_head) std::cout<<" ";
-		std::cout << "(" << i << " : " << FMTtable[i].instSeq << ")";
-#endif
-		}
-	//DPRINTF(FMT, "\n");
-
-#if FMTDEBUG
-	std::cout << std::endl;
-#endif
-}
 
 

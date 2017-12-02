@@ -67,6 +67,7 @@
 #include "debug/O3PipeView.hh"
 #include "debug/MyDebug.hh"
 #include "debug/SMT.hh"
+#include "debug/SMT_Commit.hh"
 #include "params/DerivO3CPU.hh"
 #include "sim/faults.hh"
 #include "sim/full_system.hh"
@@ -914,9 +915,30 @@ DefaultCommit<Impl>::commit()
 				cpu->mFMT.DebugPrint();
 			}    
 			
+			//debug
+			else{ 
+				DPRINTF(SMT_Commit, "NOT FOUND '''at FMT : tid %d\n", tid);
+			}
 			//***********************************************************//
 
-			
+			//SehoonSMT
+			//***********************************************************//
+			///////////////////WHEN BRANCH MISPREDICTED////////////////////
+
+			entryMispred = cpu->fmt_v[tid]->FindInst(squashed_inst);
+			DPRINTF(MyDebug, "(BRANCH MISPRED) : %d, Entry found @ %d \n", squashed_inst, entryMispred);
+			if(entryMispred!=-1){//entry found
+				cpu->fmt_v[tid]->ForwardDispTailPtr(entryMispred); // change tail pointer
+				cpu->fmt_v[tid]->SetMispredBitOnTail(); // set mispredict bit on
+				cpu->fmt_v[tid]->ForwardFetchPtr(entryMispred); // change fetch pointer
+				//in order to count mispred penalty until next dispatch 
+				cpu->fmt_v[tid]->SetCorrectWayFetching(true); 
+			}
+			//debug
+			else{ 
+				DPRINTF(SMT_Commit, "NOT FOUND at FMT : tid %d\n", tid);
+			}
+			//***********************************************************//
 			
 			if (toIEW->commitInfo[tid].mispredictInst) {
                 if (toIEW->commitInfo[tid].mispredictInst->isUncondCtrl()) {
@@ -1018,6 +1040,9 @@ DefaultCommit<Impl>::commitInsts()
 		//TODO : count only when ROB is blocked
 		// not when ROB is empty..
 		
+		// TODO TODO TODO
+		// !!!!!!!!!!!!!!!!!!!!!!!!!MUST BE MODIFIED!!!!!!!!!!!!!!!!!!!!!
+
 		if (commit_thread == InvalidThreadID || !rob->isHeadReady(commit_thread)){
 		
 			if(commit_thread != InvalidThreadID && !rob->isEmpty(commit_thread)){
@@ -1033,7 +1058,15 @@ DefaultCommit<Impl>::commitInsts()
 					DPRINTF(MyDebug, "Head Blocked @ %d, inst type : %s, Dmiss penalty : %d \n", 
 							cpu->total_cycle, head_inst->isLoad() ? "Load" : 
 							head_inst->isStore() ?  "Store" : "NonMem", cpu->D1_miss);  
-				
+		
+					//SehoonSMT
+					///////////////////////////////////////
+					
+					cpu->isROBblocked_v[commit_thread] = true;
+					cpu->D1_miss_v[commit_thread] = true;
+					DPRINTF(SMT_Commit, "Head Blocked at tid : %d\n", commit_thread);
+
+					//////////////////////////////////////
 				}
 
 			}    
@@ -1072,7 +1105,7 @@ DefaultCommit<Impl>::commitInsts()
 				if(entry->mispredBit){
 					cpu->branch_miss += entry->branch;
 					cpu->branch_miss_stat += entry->branch;
-
+					
 					DPRINTF(MyDebug, "Branch Penalty is %d \n", cpu->branch_miss);
 				}
 
@@ -1115,7 +1148,59 @@ DefaultCommit<Impl>::commitInsts()
 							cpu->L1_miss, cpu->L2_miss, cpu->tlb_miss);
 				}
 				else{
-					cpu->mFMT.DebugPrint2();
+					//cpu->mFMT.DebugPrint2();
+				}
+			}
+
+		}
+		//////////////////////////////////////////////////////////////////
+
+		//SehoonSMT
+		///////////////////////////////////////////////////////////////////
+		//////////////////////WHEN BRANCH COMMITTED////////////////////////
+
+		
+		if(head_inst->isControl() && !head_inst->isSquashed()){
+			//DPRINTF(MyDebug, "commiting control inst seq num is %d \n", head_inst->seqNum);
+
+			if(cpu->fmt_v[commit_thread]->CheckHeadSeq(head_inst->seqNum)){ // if dispatch head is equal to head instruction
+				FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
+
+				//if mispredicted add up mis-branch penalty
+				if(entry->mispredBit){
+					cpu->branch_miss_v[commit_thread] += entry->branch;
+				}
+
+				//add cache and TLB miss penalty
+				cpu->L1_miss_v[commit_thread] += entry->L1;
+				cpu->L2_miss_v[commit_thread]  += entry->L2;
+				cpu->tlb_miss_v[commit_thread] += entry->tlb;
+				cpu->base_v[commit_thread] += entry->base;
+				cpu->wait_v[commit_thread] += entry->wait;
+			}
+			else{
+				int newhead_entry = cpu->fmt_v[commit_thread]->FindInst(head_inst->seqNum);
+				DPRINTF(MyDebug, "newHead %d\n", newhead_entry);
+
+				if(newhead_entry!=-1){ // if head instruction is found in between fetch and disp_head ptr
+					cpu->fmt_v[commit_thread]->ForwardDispHeadPtr(newhead_entry);
+					FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
+
+					//if mispredicted add up mis-branch penalty
+					if(entry->mispredBit){
+						cpu->branch_miss_v[commit_thread] += entry->branch;
+					}
+
+					//add cache and TLB miss penalty
+					cpu->L1_miss_v[commit_thread] += entry->L1;
+					cpu->L2_miss_v[commit_thread] += entry->L2;
+					cpu->tlb_miss_v[commit_thread] += entry->tlb;
+					cpu->base_v[commit_thread] += entry->base;
+					cpu->wait_v[commit_thread] += entry->wait;
+					
+				}
+				else{
+					//cpu->mFMT.DebugPrint2();
 				}
 			}
 
@@ -1461,10 +1546,14 @@ DefaultCommit<Impl>::getInsts()
 			//DPRINTF(SMT, "to ROB : %d \n", tid);
 		
 			//Sehoon
+			//SehoonSMT
 			////////////////////DISPATCH & ROB INSERTION/////////////////////////
 			
 			cpu->mFMT.SetCorrectWayFetching(false);
-				
+			
+			cpu->fmt_v[tid]->SetCorrectWayFetching(false);
+
+			//debuging
 			if(!inst->isSquashed() && inst->isControl()){
 				if(!cpu->mFMT.ForwardDispTailPtr())
 					DPRINTF(MyDebug, "FALSE_from dispatch!\n");

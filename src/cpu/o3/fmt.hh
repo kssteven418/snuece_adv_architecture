@@ -54,6 +54,7 @@ class FMT{
 		int FindInst(InstSeqNum seq);
 
 		void BranchUpdate(bool isROBblocked);
+		void BranchUpdate(bool isROBblocked, int num);
 		void SetMispredBitOnTail();
 
 		bool NoPendingBranch();
@@ -77,7 +78,6 @@ class FMT{
 		//Debug
 		void PrintEntry();
 		void DebugPrint();
-		void DebugPrint2();
 };
 
 #endif

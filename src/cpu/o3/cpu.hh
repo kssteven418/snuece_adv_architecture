@@ -139,10 +139,11 @@ class FullO3CPU : public BaseO3CPU
 	std::vector<int> L2_miss_v;
 	std::vector<int> tlb_miss_v;
 	std::vector<int> branch_miss_v;
+	std::vector<int> wait_v;
+	std::vector<int> base_v;
 	std::vector<int> D1_miss_v;
 	std::vector<int> D2_miss_v;
 	std::vector<bool> isROBblocked_v;
-
 
   public:
     enum Status {

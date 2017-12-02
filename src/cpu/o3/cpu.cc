@@ -197,6 +197,8 @@ FullO3CPU<Impl>::FullO3CPU(DerivO3CPUParams *params)
 		L2_miss_v.push_back(0);
 		tlb_miss_v.push_back(0);
 		branch_miss_v.push_back(0);
+		wait_v.push_back(0);
+		base_v.push_back(0);
 		D1_miss_v.push_back(0);
 		D2_miss_v.push_back(0);
 		isROBblocked_v.push_back(false);
@@ -623,25 +625,51 @@ FullO3CPU<Impl>::tick()
 //    activity = false;
 
    	//Sehoon : adds up 1 to every branch entries in FMT
+	//SehoonSMT
     ///////////////////////////////////////////////////
 	    
-    mFMT.BranchUpdate(isROBblocked);
-    total_cycle++;
+	DPRINTF(SMT, "----------------------Tick %d-------------------------\n", total_cycle);
+    
+	//update branch miss penalty
+	mFMT.BranchUpdate(isROBblocked);
+    
+	for(ThreadID i = 0; i<numThreads; i++){
+		fmt_v[i]->BranchUpdate(isROBblocked_v[i], decode.getDecodeWidth());
+	}
+
+	//update total cycles
+	total_cycle++;
     total_cycle_stat++;
-    if(total_cycle%500 == 0){
-        DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);
-        float l1 = (L1_miss+0.0)/total_cycle*100;
+    
+	//debug progress
+	if(total_cycle%100000 == 0){
+        //DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);
+        /*float l1 = (L1_miss+0.0)/total_cycle*100;
         float d1 = (D1_miss+0.0)/total_cycle*100;
         float br = (branch_miss+0.0)/total_cycle*100;
         DPRINTF(Progress, "I-miss: %d (%.2f), branch-miss: %d (%.2f), D-miss: %d (%.2f), Base: (%.2f) \n", 
                 L1_miss, l1,
                 branch_miss, br,
-                D1_miss, d1, 100-(l1+br+d1)); 
+                D1_miss, d1, 100-(l1+br+d1));
+		*/
+        DPRINTF(Progress, "-------------------------------------------------- \n", total_cycle);
+        DPRINTF(Progress, "Total Cycles :: %d \n", total_cycle);
+		
+		int l1, d1, br, w, b;
+        
+		for(ThreadID i=0; i<numThreads; i++){
+			l1 = L1_miss_v[i]/decode.getDecodeWidth();
+   		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
+        	br = branch_miss_v[i]/decode.getDecodeWidth();
+			w =  wait_v[i]/decode.getDecodeWidth();
+			b =  base_v[i]/decode.getDecodeWidth();
+        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d\n"
+						  , i, b, l1, br, d1, w);
+		}
 	}    
+
  	//////////////////////////////////////////////////
 
-	//SehoonSMT
-	DPRINTF(SMT, "----------------------Tick %d-------------------------\n", total_cycle);
 
 
 //Tick each of the atages
