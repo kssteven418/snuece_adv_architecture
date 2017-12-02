@@ -1261,7 +1261,6 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 				cpu->fmt_v[i]->PrintEntry();
 			}
 			else{
-				DPRINTF(SMT, "UAGGGGGGGGG%d\n", cpu->wait_v[i]);
 				cpu->wait_v[i]+=fetchWidth;
 			}
 		}
@@ -1407,11 +1406,12 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		
 		count--;
 		DPRINTF(SMT, "tid : %d\n", tid);
-			
-		if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
-			cpu->fmt_v[tid]->CountBase();
-		}else{
-			cpu->base_v[tid]++;
+		if(!cpu->isROBblocked_v[tid]){	
+			if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
+				cpu->fmt_v[tid]->CountBase();
+			}else{
+				cpu->base_v[tid]++;
+			}
 		}
 		DPRINTF(SMT, "%d :: ", tid); 
 		cpu->fmt_v[tid]->PrintEntry();
@@ -1552,7 +1552,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 	//SehoonSMT
 	///////////////////////MISS WHILE FETCHING///////////////////////
 	
-	if(count!=0){
+	if(count!=0 && !cpu->isROBblocked_v[tid]){
 		DPRINTF(SMT, "CACHE MISS %d : %d\n", tid, count);
 		if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
 			cpu->fmt_v[tid]->CountL1(count);

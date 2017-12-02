@@ -140,9 +140,11 @@ void FMT::BranchUpdate(bool isROBblocked, int num){
 	
 	//avoid duplication count when ROB is blocked
 	//due to Load miss or Store miss
-	if(!isROBblocked)
-	//	std::cout<<"ARGHHHHHH"<<isROBblocked<<std::endl;
-	
+
+/*	if(!isROBblocked)
+		std::cout<<"ARGHHHHHH"<<isROBblocked<<std::endl;
+*/
+
 	if(isROBblocked){
 		// std::cout<<"Mispred on D miss\n";
 		return;

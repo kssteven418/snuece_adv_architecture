@@ -664,9 +664,8 @@ DefaultCommit<Impl>::checkROBHead(){
             commitStatus[tid] == Idle ||
             commitStatus[tid] == FetchTrapPending) {
 
-            if (!rob->isHeadReady(tid)) {
-				
-				//if(!head_inst->isSquashed() && (head_inst->isLoad() || head_inst->isStore())){
+            if (!rob->isHeadReady(tid) && !rob->isEmpty()) {
+			
 				cpu->D1_miss_v[tid] += 1;
 				cpu->isROBblocked_v[tid] = true;
             }
