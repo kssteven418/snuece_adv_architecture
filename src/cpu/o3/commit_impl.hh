@@ -68,6 +68,7 @@
 #include "debug/MyDebug.hh"
 #include "debug/SMT.hh"
 #include "debug/SMT_Commit.hh"
+#include "debug/Progress.hh"
 #include "params/DerivO3CPU.hh"
 #include "sim/faults.hh"
 #include "sim/full_system.hh"
@@ -663,9 +664,13 @@ DefaultCommit<Impl>::checkROBHead(){
         if (commitStatus[tid] == Running ||
             commitStatus[tid] == Idle ||
             commitStatus[tid] == FetchTrapPending) {
-
-            if (!rob->isHeadReady(tid) && !rob->isEmpty()) {
 			
+			if(minSize>rob->numFreeEntries(tid)) minSize = rob->numFreeEntries(tid);
+			
+			//DPRINTF(Progress, "%d\n", minSize);
+            
+			if (!rob->isHeadReady(tid) && /*rob->numFreeEntries(tid)<=minSize+8*/!rob->isEmpty()) {
+				//DPRINTF(Progress, "%d\n", rob->numFreeEntries(tid));
 				cpu->D1_miss_v[tid] += 1;
 				cpu->isROBblocked_v[tid] = true;
             }
@@ -680,7 +685,7 @@ void
 DefaultCommit<Impl>::tick()
 {
 	//SehoonSMT : check whether ROB head is blocked or not
-	//checkROBHead();
+//	checkROBHead();
 
     wroteToTimeBuffer = false;
     _nextStatus = Inactive;

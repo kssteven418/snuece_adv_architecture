@@ -256,8 +256,11 @@ class DefaultRename
 
     /** Renames the destination registers of an instruction. */
     inline void renameDestRegs(DynInstPtr &inst, ThreadID tid);
-
-    /** Calculates the number of free ROB entries for a specific thread. */
+	
+	//SehoonSMT
+	inline void checkROBBlocked();
+	
+	/** Calculates the number of free ROB entries for a specific thread. */
     inline int calcFreeROBEntries(ThreadID tid);
 
     /** Calculates the number of free IQ entries for a specific thread. */

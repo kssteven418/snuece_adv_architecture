@@ -1,7 +1,7 @@
  #!/bin/bash
   
  ./build/ALPHA/gem5.debug \
-	 --debug-flag=Progress \
+	 --debug-flag=SMT_Rename \
          configs/example/se.py -n 1\
  		--smt \
          --cpu-type=DerivO3CPU -c "./tests/test-progs/hello/bin/alpha/linux/hello;./tests/test-progs/hello/bin/alpha/linux/hello" \

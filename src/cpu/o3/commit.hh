@@ -128,7 +128,11 @@ class DefaultCommit
     };
 
   private:
-    /** Overall commit status. */
+    
+	//SehoonSMT
+	int minSize = 200;
+	
+	/** Overall commit status. */
     CommitStatus _status;
     /** Next commit status, to be set at the end of the cycle. */
     CommitStatus _nextStatus;

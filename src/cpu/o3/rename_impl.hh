@@ -54,6 +54,8 @@
 #include "cpu/reg_class.hh"
 #include "debug/Activity.hh"
 #include "debug/Rename.hh"
+#include "debug/Progress.hh"
+#include "debug/SMT_Rename.hh"
 #include "debug/O3PipeView.hh"
 #include "params/DerivO3CPU.hh"
 
@@ -387,6 +389,9 @@ template <class Impl>
 void
 DefaultRename<Impl>::tick()
 {
+	//SehoonSMT
+	checkROBBlocked();
+
     wroteToTimeBuffer = false;
 
     blockThisCycle = false;
@@ -394,6 +399,7 @@ DefaultRename<Impl>::tick()
     bool status_change = false;
 
     toIEWIndex = 0;
+	DPRINTF(SMT_Rename, "--------------------------------cycle : %d\n", cpu->total_cycle);
 
     sortInsts();
 
@@ -451,6 +457,7 @@ template<class Impl>
 void
 DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
 {
+
     // If status is Running or idle,
     //     call renameInsts()
     // If status is Unblocking,
@@ -510,6 +517,8 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
     int insts_available = renameStatus[tid] == Unblocking ?
         skidBuffer[tid].size() : insts[tid].size();
 
+	DPRINTF(SMT_Rename, "inst avail TID %d :: %d %s\n", tid, insts_available, renameStatus[tid]? "unblock" : "block");
+
     // Check the decode queue to see if instructions are available.
     // If there are no available instructions to rename, then do nothing.
     if (insts_available == 0) {
@@ -541,6 +550,10 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
 
     // Check if there's any space left.
     if (min_free_entries <= 0) {
+
+		//SehoonSMT
+
+
         DPRINTF(Rename, "[tid:%u]: Blocking due to no free ROB/IQ/ "
                 "entries.\n"
                 "ROB has %i free entries.\n"
@@ -592,7 +605,10 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
     int renamed_insts = 0;
 
     while (insts_available > 0 &&  toIEWIndex < renameWidth) {
-        DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
+    	
+		DPRINTF(SMT_Rename, "Rename TID : %d\n", tid);
+		
+		DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
 
         assert(!insts_to_rename.empty());
 
@@ -1119,12 +1135,31 @@ DefaultRename<Impl>::renameDestRegs(DynInstPtr &inst, ThreadID tid)
     }
 }
 
+//SehoonSMT
+template <class Impl>
+inline void 
+DefaultRename<Impl>::checkROBBlocked(){
+	
+	int count;
+
+	for(ThreadID tid=0; tid<numThreads; tid++){
+		cpu->isROBblocked_v[tid] = false;
+		count = calcFreeROBEntries(tid);
+		if(count<=8){
+			DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d\n", tid);
+			cpu->D1_miss_v[tid] += 1;
+			cpu->isROBblocked_v[tid] = true;
+		}
+	}
+}
+
 template <class Impl>
 inline int
 DefaultRename<Impl>::calcFreeROBEntries(ThreadID tid)
 {
     int num_free = freeEntries[tid].robEntries -
                   (instsInProgress[tid] - fromIEW->iewInfo[tid].dispatched);
+	//DPRINTF(Progress, "%d\n", num_free);
 
     //DPRINTF(Rename,"[tid:%i]: %i rob free\n",tid,num_free);
 
