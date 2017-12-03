@@ -19,6 +19,7 @@ struct _FMTentry{
 	//for smt
 	int base;
 	int wait;
+	int misc;
 
 } FMTentry;
 
@@ -28,6 +29,7 @@ class FMT{
 		int size = SIZE;
 		FMTentry FMTtable[SIZE];
 
+	public:
 		/*pointer variables*/
 		int dispatch_head;
 		int dispatch_tail;
@@ -35,21 +37,22 @@ class FMT{
 		
 		bool correct_way_fetching;
 
-	public:
+	
 		/* functions*/
 		FMT();
 		void ResetEntry(int i);
 		void ResetAll();
 	
 		void SetCorrectWayFetching(bool b);
-
+		bool GetCorrectWayFetching(){ return correct_way_fetching;}
+		
 		//forwarding pointer functions
 		int ForwardFetchPtr(InstSeqNum seq);	
 		void ForwardFetchPtr(int i);	
 		bool ForwardDispTailPtr();
 		void ForwardDispTailPtr(int i);	
 		FMTentry *ForwardDispHeadPtr();
-		void ForwardDispHeadPtr(int i);
+		FMTentry *ForwardDispHeadPtr(int i);
 
 		int FindInst(InstSeqNum seq);
 
@@ -61,6 +64,7 @@ class FMT{
 		bool CheckHeadSeq(InstSeqNum seq);
 		bool IsInPipeline(int entry);
 		bool IsPipelineEmpty();
+		bool IsROBEmpty();
 
 		//L1, L2, TLB entry update
 		void CountL1();
@@ -75,6 +79,12 @@ class FMT{
 		void CountBase(int n);
 		void CountWait(int n);
 
+		void CountL1Disp(int n);
+		void CountL2Disp(int n);
+		void CountTLBDisp(int n);
+		void CountBaseDisp(int n);
+		void CountWaitDisp(int n);
+		void CountMiscDisp(int n);
 		//Debug
 		void PrintEntry();
 		void DebugPrint();

@@ -98,8 +98,9 @@ FMTentry *FMT::ForwardDispHeadPtr(){
 }
 
 //forward dispatch tail pointer to ith entry
-void FMT::ForwardDispHeadPtr(int i){
+FMTentry *FMT::ForwardDispHeadPtr(int i){
 	dispatch_head = i;
+	return &(FMTtable[dispatch_head]);
 }
 
 //add 1 for every pending branched
@@ -222,6 +223,11 @@ bool FMT::IsPipelineEmpty(){
 	return dispatch_head==fetch;
 }
 
+//True if the ROB is empty
+bool FMT::IsROBEmpty(){
+	return dispatch_head == dispatch_tail;
+}
+
 //find entry of the given inst seqnuence number
 int FMT::FindInst(InstSeqNum seq){
 	//TODO : range b/w disp tail and disp head
@@ -263,6 +269,10 @@ void FMT::CountL1(int n){
 	FMTtable[fetch].L1 += n;
 }
 
+void FMT::CountL1Disp(int n){
+	FMTtable[dispatch_tail].L1 += n;
+}
+
 //update L2 miss entry
 void FMT::CountL2(){
 	FMTtable[fetch].L2++;
@@ -272,6 +282,9 @@ void FMT::CountL2(int n){
 	FMTtable[fetch].L2 += n;
 }
 
+void FMT::CountL2Disp(int n){
+	FMTtable[dispatch_tail].L2 += n;
+}
 //update TLB miss entry
 void FMT::CountTLB(){
 	FMTtable[fetch].tlb++;
@@ -279,6 +292,10 @@ void FMT::CountTLB(){
 
 void FMT::CountTLB(int n){
 	FMTtable[fetch].tlb += n;
+}
+
+void FMT::CountTLBDisp(int n){
+	FMTtable[dispatch_tail].tlb += n;
 }
 
 //update Base entry
@@ -290,6 +307,10 @@ void FMT::CountBase(int n){
 	FMTtable[fetch].base += n;
 }
 
+void FMT::CountBaseDisp(int n){
+	FMTtable[dispatch_tail].base += n;
+}
+
 //update Wait entry
 void FMT::CountWait(){
 	FMTtable[fetch].wait++;
@@ -299,6 +320,13 @@ void FMT::CountWait(int n){
 	FMTtable[fetch].wait += n;
 }
 
+void FMT::CountWaitDisp(int n){
+	FMTtable[dispatch_tail].wait += n;
+}
+
+void FMT::CountMiscDisp(int n){
+	FMTtable[dispatch_tail].misc += n;
+}
 
 
 

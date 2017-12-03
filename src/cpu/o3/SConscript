@@ -59,6 +59,7 @@ if 'O3CPU' in env['CPU_MODELS']:
     Source('store_set.cc')
     Source('thread_context.cc')
     Source('fmt.cc')
+    Source('disp_slot.cc')
     
     DebugFlag('CommitRate')
     DebugFlag('IEW')

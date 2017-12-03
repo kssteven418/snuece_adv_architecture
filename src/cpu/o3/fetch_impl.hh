@@ -569,10 +569,6 @@ DefaultFetch<Impl>::lookupAndUpdateNextPC(
     ////////////FETCH CONTROL INST///////////////
     //*****************************************//
 
-    //forward fetch pointer and insert its sequence number
-    cpu->mFMT.ForwardFetchPtr(inst->seqNum);    
-    //DPRINTF(MyDebug, "control fetched : cpu->num_control %d\n", ++cpu->num_control);
-    cpu->mFMT.DebugPrint();
 
 	//SehoonSMT
 	////////////////////////////////////////////
@@ -1312,48 +1308,11 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 
             if (fetchStatus[tid] == IcacheWaitResponse){
                 ++icacheStallCycles;
-		        
-				//!Sehoon : count L1 miss event
-				/***************************/
-				if(cpu->mFMT.IsPipelineEmpty()){
-   	            	//if pipeline empty, add miss penalty directly to the global variable
-                    if(!cpu->isROBblocked){
-                        ++cpu->L1_miss;
-                        ++cpu->L1_miss_stat;
-                    }    
-                }    
-				else{
-                    //otherwise, add to the FMT fetch entry
-                    if(!cpu->isROBblocked){
-                        cpu->mFMT.CountL1();					    
-				
-					}    
-				}
-	            /**************************/
 			}
 
 			
             else if (fetchStatus[tid] == ItlbWait){
                 ++fetchTlbCycles;
-	
-				//Sehoon : count TLB miss event
-				/***************************/
-				if(cpu->mFMT.IsPipelineEmpty()){
-					//if pipeline empty, add miss penalty directly to the global variable
-					if(!cpu->isROBblocked){
-						++cpu->tlb_miss;
-						++cpu->tlb_miss_stat;
-					}    
-				}    
-				else{
-					//otherwise, add to the FMT fetch entry
-					if(!cpu->isROBblocked){
-						cpu->mFMT.CountTLB();
-					}    
-				}    
-				/**************************/
-
-
 			}
             else
                 ++fetchMiscStallCycles;
@@ -1858,61 +1817,10 @@ DefaultFetch<Impl>::profileStall(ThreadID tid) {
         ++icacheStallCycles;
         DPRINTF(Fetch, "[tid:%i]: Fetch is waiting cache response!\n",
                 tid);
-        //Sehoon : Count L1 miss event
-
-		/***************************/
-		if(cpu->mFMT.IsPipelineEmpty()){
-			//if pipeline empty, add miss penalty directly to the global variable
-			if(!cpu->isROBblocked){
-				//  DPRINTF(MyDebug, "L1 miss \n");
-				++cpu->L1_miss;
-				++cpu->L1_miss_stat;
-				DPRINTF(SMT, "stalled : %d\n", tid);
-			}    
-			else{ // for debugging
-				//  DPRINTF(MyDebug, "L1 miss while ROB blocked\n");
-				DPRINTF(SMT, "stalled' : %d\n", tid);
-			}    
-		}    
-		else{
-			//otherwise, add to the FMT fetch entry
-			if(!cpu->isROBblocked){
-				//  DPRINTF(MyDebug, "L1 miss \n");
-				cpu->mFMT.CountL1();
-				DPRINTF(SMT, "stalled : %d\n", tid);
-			}    
-			else{ // for debugging
-				DPRINTF(SMT, "stalled' : %d\n", tid);
-				//  DPRINTF(MyDebug, "L1 miss while ROB blocked\n");
-			}    
-		}    
-		/**************************/
-
     } else if (fetchStatus[tid] == ItlbWait) {
         ++fetchTlbCycles;
         DPRINTF(Fetch, "[tid:%i]: Fetch is waiting ITLB walk to "
                 "finish!\n", tid);
-
-
-		//Sehoon : Count TLB miss event
-		
-		/***************************/
-		if(cpu->mFMT.IsPipelineEmpty()){
-			//if pipeline empty, add miss penalty directly to the global variable
-			if(!cpu->isROBblocked){
-				++cpu->tlb_miss;
-				++cpu->tlb_miss_stat;
-			}    
-		}    
-		else{
-			//otherwise, add to the FMT fetch entry
-			if(!cpu->isROBblocked){
-				cpu->mFMT.CountTLB();
-			}    
-		}    
-		/**************************/
-
-
     } else if (fetchStatus[tid] == TrapPending) {
         ++fetchPendingTrapStallCycles;
         DPRINTF(Fetch, "[tid:%i]: Fetch is waiting for a pending trap!\n",

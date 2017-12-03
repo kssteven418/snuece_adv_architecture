@@ -112,7 +112,8 @@ class DefaultRename
     };
 
   private:
-    /** Rename status. */
+	
+	/** Rename status. */
     RenameStatus _status;
 
     /** Per-thread status. */

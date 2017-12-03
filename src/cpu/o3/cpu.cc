@@ -189,6 +189,7 @@ FullO3CPU<Impl>::FullO3CPU(DerivO3CPUParams *params)
       system(params->system),
       lastRunningCycle(curCycle())
 {
+	total_cycle = 0;
 
     for (ThreadID tid = 0; tid < numThreads; tid++) {
 		DPRINTF(SMT, "Push back %d \n", tid);
@@ -201,7 +202,11 @@ FullO3CPU<Impl>::FullO3CPU(DerivO3CPUParams *params)
 		base_v.push_back(0);
 		D1_miss_v.push_back(0);
 		D2_miss_v.push_back(0);
+		misc_v.push_back(0);
+
 		isROBblocked_v.push_back(false);
+
+		dslot.push_back(new Disp_slot);
 	}
 
     if (!params->switched_out) {
@@ -574,40 +579,7 @@ FullO3CPU<Impl>::regStats()
         .name(name() + ".misc_regfile_writes")
         .desc("number of misc regfile writes")
         .prereq(miscRegfileWrites);
-	L1_miss_stat
-        .name(name()+".L1_miss")
-        .desc("L1 miss penalty")
-        .prereq(L1_miss_stat);
 
-    L2_miss_stat
-        .name(name()+".L2_miss")
-        .desc("L2 miss penalty")
-        .prereq(L2_miss_stat);
-
-    tlb_miss_stat
-        .name(name()+".tlb_miss")
-        .desc("TLB miss penalty")
-        .prereq(tlb_miss_stat);
-		    
-    D1_miss_stat
-        .name(name()+".D1_miss")
-        .desc("D1 miss penalty")
-        .prereq(D1_miss_stat);
-
-	D2_miss_stat
-	    .name(name()+".D2_miss")
-        .desc("D2 miss penalty")
-        .prereq(D2_miss_stat);
-
-    branch_miss_stat
-        .name(name()+".branch_miss")
-        .desc("Branch miss penalty")
-        .prereq(branch_miss_stat);
-
-    total_cycle_stat
-        .name(name()+".total_cycle")
-        .desc("Total cycles")
-        .prereq(total_cycle_stat);
 
 }
 
@@ -638,7 +610,6 @@ FullO3CPU<Impl>::tick()
 
 	//update total cycles
 	total_cycle++;
-    total_cycle_stat++;
     
 	//debug progress
 	if(total_cycle%100000 == 0){
@@ -654,17 +625,18 @@ FullO3CPU<Impl>::tick()
         DPRINTF(Progress, "-------------------------------------------------- \n", total_cycle);
         DPRINTF(Progress, "Total Cycles :: %d \n", total_cycle);
 		
-		int l1, d1, br, w, b, total;
+		int l1, d1, br, w, b, m, total;
         
 		for(ThreadID i=0; i<numThreads; i++){
 			l1 = L1_miss_v[i]/decode.getDecodeWidth();
-   		    d1 = D1_miss_v[i];
+   		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
         	br = branch_miss_v[i]/decode.getDecodeWidth();
 			w =  wait_v[i]/decode.getDecodeWidth();
 			b =  base_v[i]/decode.getDecodeWidth();
-			total = l1 + d1 + br + w + b;
-        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d, Total : %d\n"
-						  , i, b, l1, br, d1, w, total);
+			m =  0; // misc_v[i]/decode.getDecodeWidth();
+			total = l1 + d1 + br + w + b + m;
+        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d, Misc : %d, Total : %d\n"
+						  , i, b, l1, br, d1, w, m, total);
 		}
 	}    
 

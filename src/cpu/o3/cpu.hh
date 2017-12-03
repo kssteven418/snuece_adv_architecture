@@ -66,6 +66,7 @@
 #include "cpu/simple_thread.hh"
 #include "cpu/timebuf.hh"
 #include "cpu/o3/fmt.hh"
+#include "cpu/o3/disp_slot.hh"
 //#include "cpu/o3/thread_context.hh"
 #include "params/DerivO3CPU.hh"
 #include "sim/process.hh"
@@ -128,7 +129,13 @@ class FullO3CPU : public BaseO3CPU
 	std::vector<int> base_v;
 	std::vector<int> D1_miss_v;
 	std::vector<int> D2_miss_v;
+	std::vector<int> misc_v;
 	std::vector<bool> isROBblocked_v;
+	
+	int total_cycle;
+
+	//dispatch slot
+	std::vector<Disp_slot*> dslot;
 
   public:
     enum Status {

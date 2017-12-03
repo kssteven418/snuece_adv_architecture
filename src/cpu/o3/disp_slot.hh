@@ -1,4 +1,7 @@
-class Disp_slot{
+#ifndef _DISP_SLOT_
+#define _DISP_SLOT_
+
+class Disp_slot {
 
 public:
 	int base;
@@ -6,12 +9,12 @@ public:
 	int D_miss;
 	int wait;
 	int total;
+	int misc;
 
-	Disp_slot(){
-		base = 0;
-		L_miss = 0;
-		D_miss = 0;
-		wait = 0;
-		total = 0;
-	}
+	Disp_slot();
+	
+	void print();
+	void reset();
 };
+
+#endif

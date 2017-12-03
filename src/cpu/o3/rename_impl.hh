@@ -391,20 +391,54 @@ void
 DefaultRename<Impl>::tick()
 {
 	//SehoonSMT
-	checkROBBlocked();
+	//Dispatch slot init
+	for(ThreadID i = 0;  i<numThreads; i++){
+		cpu->dslot[i]->reset();
+	}
 
-    wroteToTimeBuffer = false;
+	DPRINTF(SMT_Rename, "--------------------------------cycle : %d\n", cpu->total_cycle);
+	
+	wroteToTimeBuffer = false;
 
     blockThisCycle = false;
 
     bool status_change = false;
 
     toIEWIndex = 0;
-	DPRINTF(SMT_Rename, "--------------------------------cycle : %d\n", cpu->total_cycle);
 
     sortInsts();
 
-    list<ThreadID>::iterator threads = activeThreads->begin();
+    
+	//SehoonSMT :: count D1, L1 miss
+
+	for(ThreadID tid = 0; tid<numThreads; tid++){
+
+        //D1 miss
+ 	   int count = calcFreeROBEntries(tid);
+ 	   if(count<renameWidth){
+ 	   		DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d free = %d/%d\n", tid, count, renameWidth);
+ 	   		
+ 	   		//update D1_miss
+ 	   		cpu->D1_miss_v[tid] += renameWidth - count;
+			cpu->dslot[tid]->D_miss += renameWidth - count;
+ 	   		cpu->dslot[tid]->total += renameWidth - count;
+ 	   }
+ 
+ 	   //L1 miss
+ 	   int insts_available = renameStatus[tid] == Unblocking ?
+ 	       skidBuffer[tid].size() : insts[tid].size();
+ 	   int total = cpu->dslot[tid]->total;
+ 
+ 	   if(insts_available >= renameWidth-total){ // no L1 penalty
+ 	   				
+ 	   }
+ 	   else{//insts_available < renameWidth-total
+		   cpu->dslot[tid]->L_miss += renameWidth - total - insts_available;
+		   cpu->dslot[tid]->total  += renameWidth - total - insts_available;
+ 	   }
+	}
+	
+	list<ThreadID>::iterator threads = activeThreads->begin();
     list<ThreadID>::iterator end = activeThreads->end();
 
     // Check stall and squash signals.
@@ -452,12 +486,54 @@ DefaultRename<Impl>::tick()
         assert(instsInProgress[tid] >=0);
     }
 
+	//if Total cycle > 8
+	int temp;
+	for(ThreadID i = 0; i<numThreads; i++){
+		temp = cpu->dslot[i]->total;
+		//if(temp < renameWidth){
+			cpu->dslot[i]->misc = renameWidth - temp;
+		//}
+	}
+
+
+	//SehoonSMT
+	//debug :: print Dispatch slots
+	for(ThreadID i = 0; i<numThreads; i++){
+		DPRINTF(SMT_Rename, "TID : %d ::: ", i);
+		cpu->dslot[i]->print();
+	}
+
+	//update fmt
+	for(ThreadID i = 0; i<numThreads; i++){
+		if(cpu->fmt_v[i]->IsROBEmpty()){ // add directly to global penalty
+			cpu->base_v[i] += cpu->dslot[i]->base;
+			cpu->wait_v[i] += cpu->dslot[i]->wait;
+			cpu->L1_miss_v[i] += cpu->dslot[i]->L_miss;
+			cpu->misc_v[i] += cpu->dslot[i]->misc;
+		} else{ // add to local fmt entry
+			cpu->fmt_v[i]->CountBaseDisp(cpu->dslot[i]->base);
+			cpu->fmt_v[i]->CountWaitDisp(cpu->dslot[i]->wait);
+			cpu->fmt_v[i]->CountL1Disp(cpu->dslot[i]->L_miss);
+			cpu->fmt_v[i]->CountMiscDisp(cpu->dslot[i]->misc);
+		}
+	}
+
+	for(ThreadID i=0; i<numThreads; i++){
+		DPRINTF(SMT_Rename, "TID %d :: base %d wait %d L %d D %d branch %d tot %d \n",
+				i, cpu->base_v[i]/8, cpu->wait_v[i]/8, cpu->L1_miss_v[i]/8, cpu->D1_miss_v[i]/8, cpu->branch_miss_v[i]/8, 
+				 (cpu->base_v[i] + cpu->wait_v[i] + cpu->L1_miss_v[i] + cpu->D1_miss_v[i]+cpu->branch_miss_v[i])/8);
+
+		DPRINTF(SMT_Rename, "fetch : %d, tail : %d, head : %d\n", 
+				cpu->fmt_v[i]->fetch, cpu->fmt_v[i]->dispatch_tail, cpu->fmt_v[i]->dispatch_head);
+	}	
+
 }
 
 template<class Impl>
 void
 DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
 {
+
 
     // If status is Running or idle,
     //     call renameInsts()
@@ -467,11 +543,17 @@ DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
     //     check if stall conditions have passed
 
     if (renameStatus[tid] == Blocked) {
+		//SehoonSMT : if blocked, all credit goes to D_miss
+	//	DPRINTF(SMT_Rename, "BLOCK AGHHHHH\n");
         ++renameBlockCycles;
     } else if (renameStatus[tid] == Squashing) {
+		//SehoonSMT : if squashed, don't count frontend miss count
+	//	DPRINTF(SMT_Rename, "SQUASH AGHHHHH\n");
+		cpu->dslot[tid]->reset();
         ++renameSquashCycles;
     } else if (renameStatus[tid] == SerializeStall) {
         ++renameSerializeStallCycles;
+	//	DPRINTF(SMT_Rename, "FUCK AGHHHHH\n");
         // If we are currently in SerializeStall and resumeSerialize
         // was set, then that means that we are resuming serializing
         // this cycle.  Tell the previous stages to block.
@@ -507,6 +589,10 @@ DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
         // an overall status change.
         status_change = unblock(tid) || status_change || blockThisCycle;
     }
+	if(cpu->fmt_v[tid]->GetCorrectWayFetching()){
+		//DPRINTF(SMT_Rename, "CorrectWayFetching\n");
+	}
+	//DPRINTF(SMT_Rename, "MIA :: %d\n", tid);
 }
 
 template <class Impl>
@@ -518,7 +604,7 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
     int insts_available = renameStatus[tid] == Unblocking ?
         skidBuffer[tid].size() : insts[tid].size();
 
-	DPRINTF(SMT_Rename, "inst avail TID %d :: %d %s\n", tid, insts_available, renameStatus[tid]? "unblock" : "block");
+	//DPRINTF(SMT_Rename, "inst avail TID %d :: %d %s\n", tid, insts_available, renameStatus[tid]? "unblock" : "block");
 
     // Check the decode queue to see if instructions are available.
     // If there are no available instructions to rename, then do nothing.
@@ -606,8 +692,28 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
     int renamed_insts = 0;
 
     while (insts_available > 0 &&  toIEWIndex < renameWidth) {
-    	
+    
+		//SehoonSMT :: update base slot
+		/////////////////////////////////////////////////////////
+
+		cpu->dslot[tid]->base++;
+		cpu->dslot[tid]->total++;
+
+		// and wait slots of other threads
+		for(ThreadID otid = 0; otid < numThreads; otid++){
+			if(otid != tid){
+				if(cpu->dslot[otid]->D_miss + cpu->dslot[otid]->L_miss 
+						< cpu->dslot[tid]->base){
+					cpu->dslot[otid]->wait++;
+					cpu->dslot[otid]->total++;
+				}
+			}
+		}
+
+		//debugs
 		DPRINTF(SMT_Rename, "Rename TID : %d\n", tid);
+
+		/////////////////////////////////////////////////////////
 		
 		DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
 
@@ -1146,10 +1252,13 @@ DefaultRename<Impl>::checkROBBlocked(){
 	for(ThreadID tid=0; tid<numThreads; tid++){
 		cpu->isROBblocked_v[tid] = false;
 		count = calcFreeROBEntries(tid);
-		if(count<=8){
-			DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d\n", tid);
-			cpu->D1_miss_v[tid] += 1;
-			cpu->isROBblocked_v[tid] = true;
+		if(count<renameWidth){
+			// DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d free = %d/%d\n", tid, count, renameWidth);
+			
+			//update D1_miss
+			cpu->D1_miss_v[tid] += renameWidth - count;
+			cpu->dslot[tid]->D_miss += renameWidth - count;
+			cpu->dslot[tid]->total += renameWidth - count;
 		}
 	}
 }
