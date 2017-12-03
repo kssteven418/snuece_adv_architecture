@@ -680,7 +680,7 @@ void
 DefaultCommit<Impl>::tick()
 {
 	//SehoonSMT : check whether ROB head is blocked or not
-	checkROBHead();
+	//checkROBHead();
 
     wroteToTimeBuffer = false;
     _nextStatus = Inactive;

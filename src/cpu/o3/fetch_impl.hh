@@ -1181,7 +1181,8 @@ DefaultFetch<Impl>::fetch(bool &status_change)
     if (tid == InvalidThreadID) {
         // Breaks looping condition in tick()
         threadFetched = numFetchingThreads;
-        
+       
+		
 		//SehoonSMT
 		///////////////////COUNT MISS FOR NOTHING BEING FETCHED////////////////////////	 
     	for (ThreadID i = 0; i < numThreads; ++i) {
@@ -1213,12 +1214,15 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 			}
 		}
 		///////////////////////////////////////////////////////////////////////////////
+		
+
 		if (numThreads == 1) {  // @todo Per-thread stats
             profileStall(0);
         }
 
         return;
     }
+	
 	
 	//SehoonSMT
 	///////////////////COUNT MISS FOR SOMETHING BEING FETCHED/////////////////////////	 
@@ -1266,6 +1270,8 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		}
 	}
 	/////////////////////////////////////////////////////////////////////////////////	
+	
+
 	DPRINTF(SMT, "FETCH from %d\n", tid);
 
     DPRINTF(Fetch, "Attempting to fetch from [tid:%i]\n", tid);
@@ -1400,23 +1406,25 @@ DefaultFetch<Impl>::fetch(bool &status_change)
     // predicted taken
     while (numInst < fetchWidth && fetchQueue[tid].size() < fetchQueueSize
            && !predictedBranch && !quiesce) {
-	
+		
+		
 		//SehoonSMT//
 		///////////////Count Base Cycles////////////////////////
 		
 		count--;
 		DPRINTF(SMT, "tid : %d\n", tid);
-		if(!cpu->isROBblocked_v[tid]){	
+		//if(!cpu->isROBblocked_v[tid]){	
 			if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
 				cpu->fmt_v[tid]->CountBase();
 			}else{
 				cpu->base_v[tid]++;
 			}
-		}
+		//}
 		DPRINTF(SMT, "%d :: ", tid); 
 		cpu->fmt_v[tid]->PrintEntry();
 
 		///////////////////////////////////////////////////////
+		
 
         // We need to process more memory if we aren't going to get a
         // StaticInst from the rom, the current macroop, or what's already
@@ -1549,6 +1557,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
         inRom = isRomMicroPC(thisPC.microPC());
     }
 
+	
 	//SehoonSMT
 	///////////////////////MISS WHILE FETCHING///////////////////////
 	
@@ -1565,6 +1574,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 	}
 
 	/////////////////////////////////////////////////////////////////
+	
 
     if (predictedBranch) {
         DPRINTF(Fetch, "[tid:%i]: Done fetching, predicted branch "
