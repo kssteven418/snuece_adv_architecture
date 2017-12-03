@@ -630,8 +630,6 @@ FullO3CPU<Impl>::tick()
 	    
 	DPRINTF(SMT, "----------------------Tick %d-------------------------\n", total_cycle);
     
-	//update branch miss penalty
-	mFMT.BranchUpdate(isROBblocked);
     
 	for(ThreadID i = 0; i<numThreads; i++){
 		fmt_v[i]->BranchUpdate(isROBblocked_v[i], decode.getDecodeWidth());

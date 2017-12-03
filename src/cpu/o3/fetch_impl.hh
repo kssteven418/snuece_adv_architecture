@@ -1185,9 +1185,11 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		
 		//SehoonSMT
 		///////////////////COUNT MISS FOR NOTHING BEING FETCHED////////////////////////	 
-    	for (ThreadID i = 0; i < numThreads; ++i) {
+    	/*
+		for (ThreadID i = 0; i < numThreads; ++i) {
 			//DPRINTF(SMT, "MISS' %d : %d\n", i, fetchWidth);
-    		
+    	
+			
 			//TLB miss
 			if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
 				DPRINTF(SMT, "TLB MISS %d : %d\n", i, fetchWidth);
@@ -1214,7 +1216,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 			}
 		}
 		///////////////////////////////////////////////////////////////////////////////
-		
+		*/
 
 		if (numThreads == 1) {  // @todo Per-thread stats
             profileStall(0);
@@ -1227,6 +1229,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 	//SehoonSMT
 	///////////////////COUNT MISS FOR SOMETHING BEING FETCHED/////////////////////////	 
 
+	/*
     for (ThreadID i = 0; i < numThreads; ++i) {
     	if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
 			//if branch not empty
@@ -1269,6 +1272,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 			}
 		}
 	}
+	*/
 	/////////////////////////////////////////////////////////////////////////////////	
 	
 
@@ -1399,7 +1403,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
     const unsigned numInsts = fetchBufferSize / instSize;
     unsigned blkOffset = (fetchAddr - fetchBufferPC[tid]) / instSize;
 	
-	int count = fetchWidth;
+	//int count = fetchWidth;
 
     // Loop through instruction memory from the cache.
     // Keep issuing while fetchWidth is available and branch is not
@@ -1410,7 +1414,8 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		
 		//SehoonSMT//
 		///////////////Count Base Cycles////////////////////////
-		
+	
+		/*
 		count--;
 		DPRINTF(SMT, "tid : %d\n", tid);
 		//if(!cpu->isROBblocked_v[tid]){	
@@ -1422,7 +1427,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		//}
 		DPRINTF(SMT, "%d :: ", tid); 
 		cpu->fmt_v[tid]->PrintEntry();
-
+		*/
 		///////////////////////////////////////////////////////
 		
 
@@ -1560,7 +1565,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 	
 	//SehoonSMT
 	///////////////////////MISS WHILE FETCHING///////////////////////
-	
+	/*	
 	if(count!=0 && !cpu->isROBblocked_v[tid]){
 		DPRINTF(SMT, "CACHE MISS %d : %d\n", tid, count);
 		if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
@@ -1572,7 +1577,7 @@ DefaultFetch<Impl>::fetch(bool &status_change)
 		DPRINTF(SMT, "%d :: ", tid); 
 		cpu->fmt_v[tid]->PrintEntry();
 	}
-
+	*/
 	/////////////////////////////////////////////////////////////////
 	
 

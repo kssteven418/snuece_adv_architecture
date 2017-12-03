@@ -117,23 +117,8 @@ class FullO3CPU : public BaseO3CPU
 
 	//Sehoon
 	//included
-	FMT mFMT;
 	std::vector<FMT*> fmt_v;
 		    
-    //stats
-    int L1_miss = 0;
-    int L2_miss = 0;
-    int tlb_miss = 0;
-    int branch_miss = 0;
-    int total_cycle = 0;
-				    
-    int D1_miss = 0;
-    int D2_miss = 0;
-
-	int num_control = 0;
-								    
-	bool isROBblocked = false;
-	
 	//stats SMT
 	std::vector<int> L1_miss_v;
 	std::vector<int> L2_miss_v;
@@ -832,13 +817,6 @@ class FullO3CPU : public BaseO3CPU
     Stats::Scalar miscRegfileWrites;
 
 	//Sehoon
-	Stats::Scalar L1_miss_stat;
-    Stats::Scalar L2_miss_stat;
-    Stats::Scalar D1_miss_stat;
-    Stats::Scalar D2_miss_stat;
-    Stats::Scalar tlb_miss_stat;
-    Stats::Scalar branch_miss_stat;
-    Stats::Scalar total_cycle_stat;
 
 };
 

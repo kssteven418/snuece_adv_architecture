@@ -51,6 +51,7 @@
 #include "arch/registers.hh"
 #include "config/the_isa.hh"
 #include "cpu/o3/rename.hh"
+#include "cpu/o3/disp_slot.hh"
 #include "cpu/reg_class.hh"
 #include "debug/Activity.hh"
 #include "debug/Rename.hh"
