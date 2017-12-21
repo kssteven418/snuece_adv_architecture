@@ -5,7 +5,7 @@ class Disp_slot {
 
 public:
 	int base;
-	int L_miss;
+	int I_miss;
 	int D_miss;
 	int wait;
 	int total;

@@ -565,9 +565,6 @@ DefaultFetch<Impl>::lookupAndUpdateNextPC(
 
     ThreadID tid = inst->threadNumber;
     
-	//Sehoon
-    ////////////FETCH CONTROL INST///////////////
-    //*****************************************//
 
 
 	//SehoonSMT
@@ -1178,98 +1175,12 @@ DefaultFetch<Impl>::fetch(bool &status_change)
         // Breaks looping condition in tick()
         threadFetched = numFetchingThreads;
        
-		
-		//SehoonSMT
-		///////////////////COUNT MISS FOR NOTHING BEING FETCHED////////////////////////	 
-    	/*
-		for (ThreadID i = 0; i < numThreads; ++i) {
-			//DPRINTF(SMT, "MISS' %d : %d\n", i, fetchWidth);
-    	
-			
-			//TLB miss
-			if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
-				DPRINTF(SMT, "TLB MISS %d : %d\n", i, fetchWidth);
-				if(!cpu->fmt_v[i]->IsPipelineEmpty()){
-					cpu->fmt_v[i]->CountTLB(fetchWidth);
-					DPRINTF(SMT, "%d :: ", i); 
-					cpu->fmt_v[i]->PrintEntry();
-				}
-				else{
-					cpu->tlb_miss_v[i]+=fetchWidth;
-				}
-			}
-    	 	if(fetchStatus[i] == IcacheWaitResponse && !cpu->isROBblocked_v[i]) {
-				DPRINTF(SMT, "CACHE MISS %d : %d\n", i, fetchWidth);
-				if(!cpu->fmt_v[i]->IsPipelineEmpty()){
-					cpu->fmt_v[i]->CountL1(fetchWidth);
-					DPRINTF(SMT, "%d :: ", i); 
-					cpu->fmt_v[i]->PrintEntry();
-				}
-
-				else{
-					cpu->L1_miss_v[i]+=fetchWidth;
-				}
-			}
-		}
-		///////////////////////////////////////////////////////////////////////////////
-		*/
-
 		if (numThreads == 1) {  // @todo Per-thread stats
             profileStall(0);
         }
 
         return;
     }
-	
-	
-	//SehoonSMT
-	///////////////////COUNT MISS FOR SOMETHING BEING FETCHED/////////////////////////	 
-
-	/*
-    for (ThreadID i = 0; i < numThreads; ++i) {
-    	if (fetchStatus[i] == ItlbWait && !cpu->isROBblocked_v[i]) {
-			//if branch not empty
-			DPRINTF(SMT, "TLB MISS %d : %d\n", i, fetchWidth);
-			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
-				cpu->fmt_v[i]->CountTLB(fetchWidth);
-				DPRINTF(SMT, "%d :: ", i); 
-				cpu->fmt_v[i]->PrintEntry();
-			}
-			else{
-				cpu->tlb_miss_v[i]+=fetchWidth;
-			}
-		}
-    
-		else if (fetchStatus[i] == IcacheWaitResponse && !cpu->isROBblocked_v[i]) {
-			DPRINTF(SMT, "CACHE MISS %d : %d\n", i, fetchWidth);
-			//if branch not empty
-			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
-				cpu->fmt_v[i]->CountL1(fetchWidth);
-				DPRINTF(SMT, "%d :: ", i); 
-				cpu->fmt_v[i]->PrintEntry();
-		
-			}
-			else{
-				cpu->L1_miss_v[i]+=fetchWidth;
-			}
-		}
-		// Not selected even if not blocked by I-cache or TLB
-		// It is considered as WAITING event
-		else if (i!=tid && !cpu->isROBblocked_v[i]){
-			DPRINTF(SMT, "WAIT %d : %d\n", i, fetchWidth);
-			//if branch not empty
-			if(!cpu->fmt_v[i]->IsPipelineEmpty()){
-				cpu->fmt_v[i]->CountWait(fetchWidth);
-				DPRINTF(SMT, "%d :: ", i); 
-				cpu->fmt_v[i]->PrintEntry();
-			}
-			else{
-				cpu->wait_v[i]+=fetchWidth;
-			}
-		}
-	}
-	*/
-	/////////////////////////////////////////////////////////////////////////////////	
 	
 
 	DPRINTF(SMT, "FETCH from %d\n", tid);
@@ -1369,25 +1280,6 @@ DefaultFetch<Impl>::fetch(bool &status_change)
     // predicted taken
     while (numInst < fetchWidth && fetchQueue[tid].size() < fetchQueueSize
            && !predictedBranch && !quiesce) {
-		
-		
-		//SehoonSMT//
-		///////////////Count Base Cycles////////////////////////
-	
-		/*
-		count--;
-		DPRINTF(SMT, "tid : %d\n", tid);
-		//if(!cpu->isROBblocked_v[tid]){	
-			if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
-				cpu->fmt_v[tid]->CountBase();
-			}else{
-				cpu->base_v[tid]++;
-			}
-		//}
-		DPRINTF(SMT, "%d :: ", tid); 
-		cpu->fmt_v[tid]->PrintEntry();
-		*/
-		///////////////////////////////////////////////////////
 		
 
         // We need to process more memory if we aren't going to get a
@@ -1521,23 +1413,6 @@ DefaultFetch<Impl>::fetch(bool &status_change)
         inRom = isRomMicroPC(thisPC.microPC());
     }
 
-	
-	//SehoonSMT
-	///////////////////////MISS WHILE FETCHING///////////////////////
-	/*	
-	if(count!=0 && !cpu->isROBblocked_v[tid]){
-		DPRINTF(SMT, "CACHE MISS %d : %d\n", tid, count);
-		if(!cpu->fmt_v[tid]->IsPipelineEmpty()){
-			cpu->fmt_v[tid]->CountL1(count);
-		}
-		else{
-			cpu->L1_miss_v[tid]++;
-		}
-		DPRINTF(SMT, "%d :: ", tid); 
-		cpu->fmt_v[tid]->PrintEntry();
-	}
-	*/
-	/////////////////////////////////////////////////////////////////
 	
 
     if (predictedBranch) {

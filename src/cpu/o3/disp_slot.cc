@@ -4,7 +4,7 @@
 
 Disp_slot::Disp_slot(){
 	base = 0;
-	L_miss = 0;
+	I_miss = 0;
 	D_miss = 0;
 	wait = 0;
 	total = 0;
@@ -18,7 +18,7 @@ void Disp_slot::print(){
 
 void Disp_slot::reset(){
 	base = 0;
-	L_miss = 0;
+	I_miss = 0;
 	D_miss = 0;
 	wait = 0;
 	total = 0;

@@ -610,7 +610,15 @@ FullO3CPU<Impl>::tick()
 
 	//update total cycles
 	total_cycle++;
-    
+
+	//reset
+   	if(total_cycle%1000000 == 0){
+		for(ThreadID i = 0; i<numThreads; i++){
+			fmt_v[i]->ResetAll();
+			DPRINTF(Progress, "RESET %d %d %d\n", fmt_v[i]->fetch, fmt_v[i]->dispatch_head, fmt_v[i]->dispatch_tail);
+		}
+	}
+
 	//debug progress
 	if(total_cycle%100000 == 0){
         //DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);

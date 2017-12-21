@@ -433,7 +433,7 @@ DefaultRename<Impl>::tick()
  	   				
  	   }
  	   else{//insts_available < renameWidth-total
-		   cpu->dslot[tid]->L_miss += renameWidth - total - insts_available;
+		   cpu->dslot[tid]->I_miss += renameWidth - total - insts_available;
 		   cpu->dslot[tid]->total  += renameWidth - total - insts_available;
  	   }
 	}
@@ -508,12 +508,12 @@ DefaultRename<Impl>::tick()
 		if(cpu->fmt_v[i]->IsROBEmpty()){ // add directly to global penalty
 			cpu->base_v[i] += cpu->dslot[i]->base;
 			cpu->wait_v[i] += cpu->dslot[i]->wait;
-			cpu->L1_miss_v[i] += cpu->dslot[i]->L_miss;
+			cpu->L1_miss_v[i] += cpu->dslot[i]->I_miss;
 			cpu->misc_v[i] += cpu->dslot[i]->misc;
 		} else{ // add to local fmt entry
 			cpu->fmt_v[i]->CountBaseDisp(cpu->dslot[i]->base);
 			cpu->fmt_v[i]->CountWaitDisp(cpu->dslot[i]->wait);
-			cpu->fmt_v[i]->CountL1Disp(cpu->dslot[i]->L_miss);
+			cpu->fmt_v[i]->CountL1Disp(cpu->dslot[i]->I_miss);
 			cpu->fmt_v[i]->CountMiscDisp(cpu->dslot[i]->misc);
 		}
 	}
@@ -702,7 +702,7 @@ DefaultRename<Impl>::renameInsts(ThreadID tid)
 		// and wait slots of other threads
 		for(ThreadID otid = 0; otid < numThreads; otid++){
 			if(otid != tid){
-				if(cpu->dslot[otid]->D_miss + cpu->dslot[otid]->L_miss 
+				if(cpu->dslot[otid]->D_miss + cpu->dslot[otid]->I_miss 
 						< cpu->dslot[tid]->base){
 					cpu->dslot[otid]->wait++;
 					cpu->dslot[otid]->total++;
@@ -1242,26 +1242,7 @@ DefaultRename<Impl>::renameDestRegs(DynInstPtr &inst, ThreadID tid)
     }
 }
 
-//SehoonSMT
-template <class Impl>
-inline void 
-DefaultRename<Impl>::checkROBBlocked(){
-	
-	int count;
 
-	for(ThreadID tid=0; tid<numThreads; tid++){
-		cpu->isROBblocked_v[tid] = false;
-		count = calcFreeROBEntries(tid);
-		if(count<renameWidth){
-			// DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d free = %d/%d\n", tid, count, renameWidth);
-			
-			//update D1_miss
-			cpu->D1_miss_v[tid] += renameWidth - count;
-			cpu->dslot[tid]->D_miss += renameWidth - count;
-			cpu->dslot[tid]->total += renameWidth - count;
-		}
-	}
-}
 
 template <class Impl>
 inline int
