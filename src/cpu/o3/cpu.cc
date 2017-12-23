@@ -194,7 +194,7 @@ FullO3CPU<Impl>::FullO3CPU(DerivO3CPUParams *params)
     for (ThreadID tid = 0; tid < numThreads; tid++) {
 		DPRINTF(SMT, "Push back %d \n", tid);
 		fmt_v.push_back(new FMT);
-		L1_miss_v.push_back(0);
+		I_miss_v.push_back(0);
 		L2_miss_v.push_back(0);
 		tlb_miss_v.push_back(0);
 		branch_miss_v.push_back(0);
@@ -622,11 +622,11 @@ FullO3CPU<Impl>::tick()
 	//debug progress
 	if(total_cycle%100000 == 0){
         //DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);
-        /*float l1 = (L1_miss+0.0)/total_cycle*100;
+        /*float l1 = (I_miss+0.0)/total_cycle*100;
         float d1 = (D1_miss+0.0)/total_cycle*100;
         float br = (branch_miss+0.0)/total_cycle*100;
         DPRINTF(Progress, "I-miss: %d (%.2f), branch-miss: %d (%.2f), D-miss: %d (%.2f), Base: (%.2f) \n", 
-                L1_miss, l1,
+                I_miss, l1,
                 branch_miss, br,
                 D1_miss, d1, 100-(l1+br+d1));
 		*/
@@ -636,7 +636,7 @@ FullO3CPU<Impl>::tick()
 		int l1, d1, br, w, b, m, total;
         
 		for(ThreadID i=0; i<numThreads; i++){
-			l1 = L1_miss_v[i]/decode.getDecodeWidth();
+			l1 = I_miss_v[i]/decode.getDecodeWidth();
    		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
         	br = branch_miss_v[i]/decode.getDecodeWidth();
 			w =  wait_v[i]/decode.getDecodeWidth();

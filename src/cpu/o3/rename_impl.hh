@@ -508,7 +508,7 @@ DefaultRename<Impl>::tick()
 		if(cpu->fmt_v[i]->IsROBEmpty()){ // add directly to global penalty
 			cpu->base_v[i] += cpu->dslot[i]->base;
 			cpu->wait_v[i] += cpu->dslot[i]->wait;
-			cpu->L1_miss_v[i] += cpu->dslot[i]->I_miss;
+			cpu->I_miss_v[i] += cpu->dslot[i]->I_miss;
 			cpu->misc_v[i] += cpu->dslot[i]->misc;
 		} else{ // add to local fmt entry
 			cpu->fmt_v[i]->CountBaseDisp(cpu->dslot[i]->base);
@@ -520,8 +520,8 @@ DefaultRename<Impl>::tick()
 
 	for(ThreadID i=0; i<numThreads; i++){
 		DPRINTF(SMT_Rename, "TID %d :: base %d wait %d L %d D %d branch %d tot %d \n",
-				i, cpu->base_v[i]/8, cpu->wait_v[i]/8, cpu->L1_miss_v[i]/8, cpu->D1_miss_v[i]/8, cpu->branch_miss_v[i]/8, 
-				 (cpu->base_v[i] + cpu->wait_v[i] + cpu->L1_miss_v[i] + cpu->D1_miss_v[i]+cpu->branch_miss_v[i])/8);
+				i, cpu->base_v[i]/8, cpu->wait_v[i]/8, cpu->I_miss_v[i]/8, cpu->D1_miss_v[i]/8, cpu->branch_miss_v[i]/8, 
+				 (cpu->base_v[i] + cpu->wait_v[i] + cpu->I_miss_v[i] + cpu->D1_miss_v[i]+cpu->branch_miss_v[i])/8);
 
 		DPRINTF(SMT_Rename, "fetch : %d, tail : %d, head : %d\n", 
 				cpu->fmt_v[i]->fetch, cpu->fmt_v[i]->dispatch_tail, cpu->fmt_v[i]->dispatch_head);
@@ -544,16 +544,13 @@ DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
 
     if (renameStatus[tid] == Blocked) {
 		//SehoonSMT : if blocked, all credit goes to D_miss
-	//	DPRINTF(SMT_Rename, "BLOCK AGHHHHH\n");
         ++renameBlockCycles;
     } else if (renameStatus[tid] == Squashing) {
 		//SehoonSMT : if squashed, don't count frontend miss count
-	//	DPRINTF(SMT_Rename, "SQUASH AGHHHHH\n");
 		cpu->dslot[tid]->reset();
         ++renameSquashCycles;
     } else if (renameStatus[tid] == SerializeStall) {
         ++renameSerializeStallCycles;
-	//	DPRINTF(SMT_Rename, "FUCK AGHHHHH\n");
         // If we are currently in SerializeStall and resumeSerialize
         // was set, then that means that we are resuming serializing
         // this cycle.  Tell the previous stages to block.

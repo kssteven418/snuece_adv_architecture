@@ -1,0 +1,2694 @@
+diff -urN ../../../../../gem5_original/src/cpu/o3/commit.hh ./commit.hh
+--- ../../../../../gem5_original/src/cpu/o3/commit.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./commit.hh	2017-12-21 10:42:45.872420557 +0900
+@@ -50,6 +50,7 @@
+ #include "cpu/exetrace.hh"
+ #include "cpu/inst_seq.hh"
+ #include "cpu/timebuf.hh"
++#include "cpu/o3/fmt.hh"
+ #include "sim/probe/probe.hh"
+ 
+ struct DerivO3CPUParams;
+@@ -127,7 +128,11 @@
+     };
+ 
+   private:
+-    /** Overall commit status. */
++    
++	//SehoonSMT
++	int minSize = 200;
++	
++	/** Overall commit status. */
+     CommitStatus _status;
+     /** Next commit status, to be set at the end of the cycle. */
+     CommitStatus _nextStatus;
+@@ -211,6 +216,9 @@
+     /** Deschedules a thread from scheduling */
+     void deactivateThread(ThreadID tid);
+ 
++	//SehoonSMT
++	void checkROBHead();
++
+     /** Ticks the commit stage, which tries to commit instructions. */
+     void tick();
+ 
+@@ -304,6 +312,7 @@
+     /** Marks completed instructions using information sent from IEW. */
+     void markCompletedInsts();
+ 
++
+     /** Gets the thread to commit, based on the SMT policy. */
+     ThreadID getCommittingThread();
+ 
+diff -urN ../../../../../gem5_original/src/cpu/o3/commit_impl.hh ./commit_impl.hh
+--- ../../../../../gem5_original/src/cpu/o3/commit_impl.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./commit_impl.hh	2017-12-21 11:02:26.710810583 +0900
+@@ -49,6 +49,7 @@
+ #include <string>
+ 
+ #include "arch/utility.hh"
++#include "base/types.hh"
+ #include "base/loader/symtab.hh"
+ #include "base/cp_annotate.hh"
+ #include "config/the_isa.hh"
+@@ -64,6 +65,11 @@
+ #include "debug/Drain.hh"
+ #include "debug/ExecFaulting.hh"
+ #include "debug/O3PipeView.hh"
++#include "debug/MyDebug.hh"
++#include "debug/SMT.hh"
++#include "debug/SMT_Commit.hh"
++#include "debug/SMT_Rename.hh"
++#include "debug/Progress.hh"
+ #include "params/DerivO3CPU.hh"
+ #include "sim/faults.hh"
+ #include "sim/full_system.hh"
+@@ -646,10 +652,13 @@
+     squashAfterInst[tid] = head_inst;
+ }
+ 
++
++
+ template <class Impl>
+ void
+ DefaultCommit<Impl>::tick()
+ {
++
+     wroteToTimeBuffer = false;
+     _nextStatus = Inactive;
+ 
+@@ -894,7 +903,29 @@
+                 fromIEW->branchTaken[tid];
+             toIEW->commitInfo[tid].squashInst =
+                                     rob->findInst(tid, squashed_inst);
+-            if (toIEW->commitInfo[tid].mispredictInst) {
++            
++			 
++
++			//SehoonSMT
++			//***********************************************************//
++			///////////////////WHEN BRANCH MISPREDICTED////////////////////
++
++			int entryMispred = cpu->fmt_v[tid]->FindInst(squashed_inst);
++			DPRINTF(MyDebug, "(BRANCH MISPRED) : %d, Entry found @ %d \n", squashed_inst, entryMispred);
++			if(entryMispred!=-1){//entry found
++				cpu->fmt_v[tid]->ForwardDispTailPtr(entryMispred); // change tail pointer
++				cpu->fmt_v[tid]->SetMispredBitOnTail(); // set mispredict bit on
++				cpu->fmt_v[tid]->ForwardFetchPtr(entryMispred); // change fetch pointer
++				//in order to count mispred penalty until next dispatch 
++				cpu->fmt_v[tid]->SetCorrectWayFetching(true); 
++			}
++			//debug
++			else{ 
++				DPRINTF(SMT_Commit, "NOT FOUND at FMT : tid %d\n", tid);
++			}
++			//***********************************************************//
++			
++			if (toIEW->commitInfo[tid].mispredictInst) {
+                 if (toIEW->commitInfo[tid].mispredictInst->isUncondCtrl()) {
+                      toIEW->commitInfo[tid].branchTaken = true;
+                 }
+@@ -988,10 +1019,123 @@
+ 
+         ThreadID commit_thread = getCommittingThread();
+ 
+-        if (commit_thread == -1 || !rob->isHeadReady(commit_thread))
+-            break;
++		//Sehoon
++		/////////////////////////////WHEN ROB IS BLOCKED///////////////////////
++		
++		//TODO : count only when ROB is blocked
++		// not when ROB is empty..
++		
++		// TODO TODO TODO
++		// !!!!!!!!!!!!!!!!!!!!!!!!!MUST BE MODIFIED!!!!!!!!!!!!!!!!!!!!!
++
++		if (commit_thread == InvalidThreadID || !rob->isHeadReady(commit_thread)){
++	
++			/*
++			if(commit_thread != InvalidThreadID && !rob->isEmpty(commit_thread)){
++
++				head_inst = rob->readHeadInst(commit_thread);
++				
++				//if blocked by Load or Store
++				
++				if(!head_inst->isSquashed() && (head_inst->isLoad() || head_inst->isStore())){
++					cpu->isROBblocked = true;
++					cpu->D1_miss++;
++					cpu->D1_miss_stat++;
++					DPRINTF(MyDebug, "Head Blocked @ %d, inst type : %s, Dmiss penalty : %d \n", 
++							cpu->total_cycle, head_inst->isLoad() ? "Load" : 
++							head_inst->isStore() ?  "Store" : "NonMem", cpu->D1_miss);  
++		
++					//SehoonSMT
++					///////////////////////////////////////
++					
++					cpu->isROBblocked_v[commit_thread] = true;
++					cpu->D1_miss_v[commit_thread] = true;
++					DPRINTF(SMT_Commit, "Head Blocked at tid : %d\n", commit_thread);
++
++					//////////////////////////////////////
++				}
++
++			}    
++			*/
++
++			break;
++			
++		}    
++		
++		head_inst = rob->readHeadInst(commit_thread);
++		
++		//cpu->isROBblocked = false;
++		//cpu->isROBblocked_v[commit_thread] = false;
++		
++
++		//SehoonSMT
++		///////////////////////////////////////////////////////////////////
++		//////////////////////WHEN BRANCH COMMITTED////////////////////////
++
++		
++		if(head_inst->isControl() && !head_inst->isSquashed()){
++			//DPRINTF(MyDebug, "commiting control inst seq num is %d \n", head_inst->seqNum);
++
++			if(cpu->fmt_v[commit_thread]->CheckHeadSeq(head_inst->seqNum)){ // if dispatch head is equal to head instruction
++				DPRINTF(SMT_Rename, "COMMITTED1, TID : %d\n", commit_thread);
++				FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
++
++				//if mispredicted add up mis-branch penalty
++				if(entry->mispredBit){
++					cpu->branch_miss_v[commit_thread] += entry->branch;
++				}
++
++				//add cache and TLB miss penalty
++				cpu->I_miss_v[commit_thread] += entry->L1;
++				cpu->L2_miss_v[commit_thread]  += entry->L2;
++				cpu->tlb_miss_v[commit_thread] += entry->tlb;
++				cpu->base_v[commit_thread] += entry->base;
++				cpu->wait_v[commit_thread] += entry->wait;
++				cpu->misc_v[commit_thread] += entry->misc;
++			}
++			else{
++				int newhead_entry = cpu->fmt_v[commit_thread]->FindInst(head_inst->seqNum);
++				DPRINTF(MyDebug, "newHead %d\n", newhead_entry);
++
++				DPRINTF(SMT_Rename, "COMMITTED2, TID : %d\n", commit_thread);
++				if(newhead_entry!=-1){ // if head instruction is found in between fetch and disp_head ptr
++					//FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr(newhead_entry);
++					//FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
++					
++					FMTentry *entry;
++
++					while(newhead_entry != cpu->fmt_v[commit_thread]->dispatch_head){
++						entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
++
++						cpu->I_miss_v[commit_thread] += entry->L1;
++						cpu->L2_miss_v[commit_thread] += entry->L2;
++						cpu->tlb_miss_v[commit_thread] += entry->tlb;
++						cpu->base_v[commit_thread] += entry->base;
++						cpu->wait_v[commit_thread] += entry->wait;
++						cpu->misc_v[commit_thread] += entry->misc;
++					
++					
++					}
++					//if mispredicted add up mis-branch penalty
++					if(entry->mispredBit){
++						cpu->branch_miss_v[commit_thread] += entry->branch;
++					}
++
++					//add cache and TLB miss penalty
++					cpu->I_miss_v[commit_thread] += entry->L1;
++					cpu->L2_miss_v[commit_thread] += entry->L2;
++					cpu->tlb_miss_v[commit_thread] += entry->tlb;
++					cpu->base_v[commit_thread] += entry->base;
++					cpu->wait_v[commit_thread] += entry->wait;
++					
++				}
++				else{
++					//cpu->mFMT.DebugPrint2();
++				}
++			}
+ 
+-        head_inst = rob->readHeadInst(commit_thread);
++		}
++		//////////////////////////////////////////////////////////////////
+ 
+         ThreadID tid = head_inst->threadNumber;
+ 
+@@ -1328,6 +1472,25 @@
+                     inst->pcState(), inst->seqNum, tid);
+ 
+             rob->insertInst(inst);
++	       	
++			//DPRINTF(SMT, "to ROB : %d \n", tid);
++		
++			//Sehoon
++			//SehoonSMT
++			////////////////////DISPATCH & ROB INSERTION/////////////////////////
++			
++			
++			cpu->fmt_v[tid]->SetCorrectWayFetching(false);
++
++			if(!inst->isSquashed() && inst->isControl()){
++				if(!cpu->fmt_v[tid]->ForwardDispTailPtr())
++					DPRINTF(MyDebug, "FALSE_from dispatch!\n");
++				else{
++					DPRINTF(MyDebug, "Control inst dispatched into ROB entry\n");
++				}
++			}			
++			/////////////////////////////////////////////////////////////////////
++
+ 
+             assert(rob->getThreadEntries(tid) <= rob->getMaxEntries(tid));
+ 
+@@ -1420,6 +1583,8 @@
+ //  SMT COMMIT POLICY MAINTAINED HERE //
+ //                                    //
+ ////////////////////////////////////////
++
++
+ template <class Impl>
+ ThreadID
+ DefaultCommit<Impl>::getCommittingThread()
+diff -urN ../../../../../gem5_original/src/cpu/o3/cpu.cc ./cpu.cc
+--- ../../../../../gem5_original/src/cpu/o3/cpu.cc	2017-11-02 18:43:35.000000000 +0900
++++ ./cpu.cc	2017-12-21 11:00:28.726937615 +0900
+@@ -61,6 +61,8 @@
+ #include "debug/Drain.hh"
+ #include "debug/O3CPU.hh"
+ #include "debug/Quiesce.hh"
++#include "debug/Progress.hh"
++#include "debug/SMT.hh"
+ #include "enums/MemoryMode.hh"
+ #include "sim/core.hh"
+ #include "sim/full_system.hh"
+@@ -187,6 +189,26 @@
+       system(params->system),
+       lastRunningCycle(curCycle())
+ {
++	total_cycle = 0;
++
++    for (ThreadID tid = 0; tid < numThreads; tid++) {
++		DPRINTF(SMT, "Push back %d \n", tid);
++		fmt_v.push_back(new FMT);
++		I_miss_v.push_back(0);
++		L2_miss_v.push_back(0);
++		tlb_miss_v.push_back(0);
++		branch_miss_v.push_back(0);
++		wait_v.push_back(0);
++		base_v.push_back(0);
++		D1_miss_v.push_back(0);
++		D2_miss_v.push_back(0);
++		misc_v.push_back(0);
++
++		isROBblocked_v.push_back(false);
++
++		dslot.push_back(new Disp_slot);
++	}
++
+     if (!params->switched_out) {
+         _status = Running;
+     } else {
+@@ -557,6 +579,8 @@
+         .name(name() + ".misc_regfile_writes")
+         .desc("number of misc regfile writes")
+         .prereq(miscRegfileWrites);
++
++
+ }
+ 
+ template <class Impl>
+@@ -572,8 +596,65 @@
+ 
+ //    activity = false;
+ 
+-    //Tick each of the stages
+-    fetch.tick();
++   	//Sehoon : adds up 1 to every branch entries in FMT
++	//SehoonSMT
++    ///////////////////////////////////////////////////
++	    
++	DPRINTF(SMT, "----------------------Tick %d-------------------------\n", total_cycle);
++    
++    
++	for(ThreadID i = 0; i<numThreads; i++){
++		fmt_v[i]->BranchUpdate(isROBblocked_v[i], decode.getDecodeWidth());
++		fmt_v[i]->PrintEntry();	
++	}
++
++	//update total cycles
++	total_cycle++;
++
++	//reset
++   	if(total_cycle%1000000 == 0){
++		for(ThreadID i = 0; i<numThreads; i++){
++			fmt_v[i]->ResetAll();
++			DPRINTF(Progress, "RESET %d %d %d\n", fmt_v[i]->fetch, fmt_v[i]->dispatch_head, fmt_v[i]->dispatch_tail);
++		}
++	}
++
++	//debug progress
++	if(total_cycle%100000 == 0){
++        //DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);
++        /*float l1 = (I_miss+0.0)/total_cycle*100;
++        float d1 = (D1_miss+0.0)/total_cycle*100;
++        float br = (branch_miss+0.0)/total_cycle*100;
++        DPRINTF(Progress, "I-miss: %d (%.2f), branch-miss: %d (%.2f), D-miss: %d (%.2f), Base: (%.2f) \n", 
++                I_miss, l1,
++                branch_miss, br,
++                D1_miss, d1, 100-(l1+br+d1));
++		*/
++        DPRINTF(Progress, "-------------------------------------------------- \n", total_cycle);
++        DPRINTF(Progress, "Total Cycles :: %d \n", total_cycle);
++		
++		int l1, d1, br, w, b, m, total;
++        
++		for(ThreadID i=0; i<numThreads; i++){
++			l1 = I_miss_v[i]/decode.getDecodeWidth();
++   		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
++        	br = branch_miss_v[i]/decode.getDecodeWidth();
++			w =  wait_v[i]/decode.getDecodeWidth();
++			b =  base_v[i]/decode.getDecodeWidth();
++			m =  0; // misc_v[i]/decode.getDecodeWidth();
++			total = l1 + d1 + br + w + b + m;
++        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d, Misc : %d, Total : %d\n"
++						  , i, b, l1, br, d1, w, m, total);
++		}
++	}    
++
++ 	//////////////////////////////////////////////////
++
++
++
++//Tick each of the atages
++   
++	fetch.tick();
+ 
+     decode.tick();
+ 
+Binary files ../../../../../gem5_original/src/cpu/o3/.cpu.cc.swp and ./.cpu.cc.swp differ
+diff -urN ../../../../../gem5_original/src/cpu/o3/cpu.hh ./cpu.hh
+--- ../../../../../gem5_original/src/cpu/o3/cpu.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./cpu.hh	2017-12-21 11:10:25.270353650 +0900
+@@ -65,6 +65,8 @@
+ #include "cpu/base.hh"
+ #include "cpu/simple_thread.hh"
+ #include "cpu/timebuf.hh"
++#include "cpu/o3/fmt.hh"
++#include "cpu/o3/disp_slot.hh"
+ //#include "cpu/o3/thread_context.hh"
+ #include "params/DerivO3CPU.hh"
+ #include "sim/process.hh"
+@@ -114,6 +116,29 @@
+ 
+     friend class O3ThreadContext<Impl>;
+ 
++	//Sehoon
++	//included
++	std::vector<FMT*> fmt_v;
++		    
++	//stats SMT
++	std::vector<int> I_miss_v;
++	std::vector<int> branch_miss_v;
++	std::vector<int> wait_v;
++	std::vector<int> base_v;
++	std::vector<int> D1_miss_v;
++	std::vector<int> misc_v;
++	std::vector<bool> isROBblocked_v;
++
++	//TODO: not implemented yet..
++	std::vector<int> D2_miss_v;
++	std::vector<int> L2_miss_v;
++	std::vector<int> tlb_miss_v;
++	
++	int total_cycle;
++
++	//dispatch slot
++	std::vector<Disp_slot*> dslot;
++
+   public:
+     enum Status {
+         Running,
+@@ -799,6 +824,9 @@
+     //number of misc
+     Stats::Scalar miscRegfileReads;
+     Stats::Scalar miscRegfileWrites;
++
++	//Sehoon
++
+ };
+ 
+ #endif // __CPU_O3_CPU_HH__
+diff -urN ../../../../../gem5_original/src/cpu/o3/decode.hh ./decode.hh
+--- ../../../../../gem5_original/src/cpu/o3/decode.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./decode.hh	2017-12-03 16:55:15.982805288 +0900
+@@ -201,7 +201,8 @@
+      * squashing and clears block/unblock signals as needed.
+      */
+     unsigned squash(ThreadID tid);
+-
++	
++    unsigned getDecodeWidth() { return decodeWidth; }
+   private:
+     // Interfaces to objects outside of decode.
+     /** CPU interface. */
+diff -urN ../../../../../gem5_original/src/cpu/o3/diff.txt ./diff.txt
+--- ../../../../../gem5_original/src/cpu/o3/diff.txt	1970-01-01 09:00:00.000000000 +0900
++++ ./diff.txt	2017-12-21 13:36:45.815839135 +0900
+@@ -0,0 +1,1348 @@
++diff -urN ../../../../../gem5_original/src/cpu/o3/commit.hh ./commit.hh
++--- ../../../../../gem5_original/src/cpu/o3/commit.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./commit.hh	2017-12-21 10:42:45.872420557 +0900
++@@ -50,6 +50,7 @@
++ #include "cpu/exetrace.hh"
++ #include "cpu/inst_seq.hh"
++ #include "cpu/timebuf.hh"
+++#include "cpu/o3/fmt.hh"
++ #include "sim/probe/probe.hh"
++ 
++ struct DerivO3CPUParams;
++@@ -127,7 +128,11 @@
++     };
++ 
++   private:
++-    /** Overall commit status. */
+++    
+++	//SehoonSMT
+++	int minSize = 200;
+++	
+++	/** Overall commit status. */
++     CommitStatus _status;
++     /** Next commit status, to be set at the end of the cycle. */
++     CommitStatus _nextStatus;
++@@ -211,6 +216,9 @@
++     /** Deschedules a thread from scheduling */
++     void deactivateThread(ThreadID tid);
++ 
+++	//SehoonSMT
+++	void checkROBHead();
+++
++     /** Ticks the commit stage, which tries to commit instructions. */
++     void tick();
++ 
++@@ -304,6 +312,7 @@
++     /** Marks completed instructions using information sent from IEW. */
++     void markCompletedInsts();
++ 
+++
++     /** Gets the thread to commit, based on the SMT policy. */
++     ThreadID getCommittingThread();
++ 
++diff -urN ../../../../../gem5_original/src/cpu/o3/commit_impl.hh ./commit_impl.hh
++--- ../../../../../gem5_original/src/cpu/o3/commit_impl.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./commit_impl.hh	2017-12-21 11:02:26.710810583 +0900
++@@ -49,6 +49,7 @@
++ #include <string>
++ 
++ #include "arch/utility.hh"
+++#include "base/types.hh"
++ #include "base/loader/symtab.hh"
++ #include "base/cp_annotate.hh"
++ #include "config/the_isa.hh"
++@@ -64,6 +65,11 @@
++ #include "debug/Drain.hh"
++ #include "debug/ExecFaulting.hh"
++ #include "debug/O3PipeView.hh"
+++#include "debug/MyDebug.hh"
+++#include "debug/SMT.hh"
+++#include "debug/SMT_Commit.hh"
+++#include "debug/SMT_Rename.hh"
+++#include "debug/Progress.hh"
++ #include "params/DerivO3CPU.hh"
++ #include "sim/faults.hh"
++ #include "sim/full_system.hh"
++@@ -646,10 +652,13 @@
++     squashAfterInst[tid] = head_inst;
++ }
++ 
+++
+++
++ template <class Impl>
++ void
++ DefaultCommit<Impl>::tick()
++ {
+++
++     wroteToTimeBuffer = false;
++     _nextStatus = Inactive;
++ 
++@@ -894,7 +903,29 @@
++                 fromIEW->branchTaken[tid];
++             toIEW->commitInfo[tid].squashInst =
++                                     rob->findInst(tid, squashed_inst);
++-            if (toIEW->commitInfo[tid].mispredictInst) {
+++            
+++			 
+++
+++			//SehoonSMT
+++			//***********************************************************//
+++			///////////////////WHEN BRANCH MISPREDICTED////////////////////
+++
+++			int entryMispred = cpu->fmt_v[tid]->FindInst(squashed_inst);
+++			DPRINTF(MyDebug, "(BRANCH MISPRED) : %d, Entry found @ %d \n", squashed_inst, entryMispred);
+++			if(entryMispred!=-1){//entry found
+++				cpu->fmt_v[tid]->ForwardDispTailPtr(entryMispred); // change tail pointer
+++				cpu->fmt_v[tid]->SetMispredBitOnTail(); // set mispredict bit on
+++				cpu->fmt_v[tid]->ForwardFetchPtr(entryMispred); // change fetch pointer
+++				//in order to count mispred penalty until next dispatch 
+++				cpu->fmt_v[tid]->SetCorrectWayFetching(true); 
+++			}
+++			//debug
+++			else{ 
+++				DPRINTF(SMT_Commit, "NOT FOUND at FMT : tid %d\n", tid);
+++			}
+++			//***********************************************************//
+++			
+++			if (toIEW->commitInfo[tid].mispredictInst) {
++                 if (toIEW->commitInfo[tid].mispredictInst->isUncondCtrl()) {
++                      toIEW->commitInfo[tid].branchTaken = true;
++                 }
++@@ -988,10 +1019,123 @@
++ 
++         ThreadID commit_thread = getCommittingThread();
++ 
++-        if (commit_thread == -1 || !rob->isHeadReady(commit_thread))
++-            break;
+++		//Sehoon
+++		/////////////////////////////WHEN ROB IS BLOCKED///////////////////////
+++		
+++		//TODO : count only when ROB is blocked
+++		// not when ROB is empty..
+++		
+++		// TODO TODO TODO
+++		// !!!!!!!!!!!!!!!!!!!!!!!!!MUST BE MODIFIED!!!!!!!!!!!!!!!!!!!!!
+++
+++		if (commit_thread == InvalidThreadID || !rob->isHeadReady(commit_thread)){
+++	
+++			/*
+++			if(commit_thread != InvalidThreadID && !rob->isEmpty(commit_thread)){
+++
+++				head_inst = rob->readHeadInst(commit_thread);
+++				
+++				//if blocked by Load or Store
+++				
+++				if(!head_inst->isSquashed() && (head_inst->isLoad() || head_inst->isStore())){
+++					cpu->isROBblocked = true;
+++					cpu->D1_miss++;
+++					cpu->D1_miss_stat++;
+++					DPRINTF(MyDebug, "Head Blocked @ %d, inst type : %s, Dmiss penalty : %d \n", 
+++							cpu->total_cycle, head_inst->isLoad() ? "Load" : 
+++							head_inst->isStore() ?  "Store" : "NonMem", cpu->D1_miss);  
+++		
+++					//SehoonSMT
+++					///////////////////////////////////////
+++					
+++					cpu->isROBblocked_v[commit_thread] = true;
+++					cpu->D1_miss_v[commit_thread] = true;
+++					DPRINTF(SMT_Commit, "Head Blocked at tid : %d\n", commit_thread);
+++
+++					//////////////////////////////////////
+++				}
+++
+++			}    
+++			*/
+++
+++			break;
+++			
+++		}    
+++		
+++		head_inst = rob->readHeadInst(commit_thread);
+++		
+++		//cpu->isROBblocked = false;
+++		//cpu->isROBblocked_v[commit_thread] = false;
+++		
+++
+++		//SehoonSMT
+++		///////////////////////////////////////////////////////////////////
+++		//////////////////////WHEN BRANCH COMMITTED////////////////////////
+++
+++		
+++		if(head_inst->isControl() && !head_inst->isSquashed()){
+++			//DPRINTF(MyDebug, "commiting control inst seq num is %d \n", head_inst->seqNum);
+++
+++			if(cpu->fmt_v[commit_thread]->CheckHeadSeq(head_inst->seqNum)){ // if dispatch head is equal to head instruction
+++				DPRINTF(SMT_Rename, "COMMITTED1, TID : %d\n", commit_thread);
+++				FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
+++
+++				//if mispredicted add up mis-branch penalty
+++				if(entry->mispredBit){
+++					cpu->branch_miss_v[commit_thread] += entry->branch;
+++				}
+++
+++				//add cache and TLB miss penalty
+++				cpu->I_miss_v[commit_thread] += entry->L1;
+++				cpu->L2_miss_v[commit_thread]  += entry->L2;
+++				cpu->tlb_miss_v[commit_thread] += entry->tlb;
+++				cpu->base_v[commit_thread] += entry->base;
+++				cpu->wait_v[commit_thread] += entry->wait;
+++				cpu->misc_v[commit_thread] += entry->misc;
+++			}
+++			else{
+++				int newhead_entry = cpu->fmt_v[commit_thread]->FindInst(head_inst->seqNum);
+++				DPRINTF(MyDebug, "newHead %d\n", newhead_entry);
+++
+++				DPRINTF(SMT_Rename, "COMMITTED2, TID : %d\n", commit_thread);
+++				if(newhead_entry!=-1){ // if head instruction is found in between fetch and disp_head ptr
+++					//FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr(newhead_entry);
+++					//FMTentry *entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
+++					
+++					FMTentry *entry;
+++
+++					while(newhead_entry != cpu->fmt_v[commit_thread]->dispatch_head){
+++						entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
+++
+++						cpu->I_miss_v[commit_thread] += entry->L1;
+++						cpu->L2_miss_v[commit_thread] += entry->L2;
+++						cpu->tlb_miss_v[commit_thread] += entry->tlb;
+++						cpu->base_v[commit_thread] += entry->base;
+++						cpu->wait_v[commit_thread] += entry->wait;
+++						cpu->misc_v[commit_thread] += entry->misc;
+++					
+++					
+++					}
+++					//if mispredicted add up mis-branch penalty
+++					if(entry->mispredBit){
+++						cpu->branch_miss_v[commit_thread] += entry->branch;
+++					}
+++
+++					//add cache and TLB miss penalty
+++					cpu->I_miss_v[commit_thread] += entry->L1;
+++					cpu->L2_miss_v[commit_thread] += entry->L2;
+++					cpu->tlb_miss_v[commit_thread] += entry->tlb;
+++					cpu->base_v[commit_thread] += entry->base;
+++					cpu->wait_v[commit_thread] += entry->wait;
+++					
+++				}
+++				else{
+++					//cpu->mFMT.DebugPrint2();
+++				}
+++			}
++ 
++-        head_inst = rob->readHeadInst(commit_thread);
+++		}
+++		//////////////////////////////////////////////////////////////////
++ 
++         ThreadID tid = head_inst->threadNumber;
++ 
++@@ -1328,6 +1472,25 @@
++                     inst->pcState(), inst->seqNum, tid);
++ 
++             rob->insertInst(inst);
+++	       	
+++			//DPRINTF(SMT, "to ROB : %d \n", tid);
+++		
+++			//Sehoon
+++			//SehoonSMT
+++			////////////////////DISPATCH & ROB INSERTION/////////////////////////
+++			
+++			
+++			cpu->fmt_v[tid]->SetCorrectWayFetching(false);
+++
+++			if(!inst->isSquashed() && inst->isControl()){
+++				if(!cpu->fmt_v[tid]->ForwardDispTailPtr())
+++					DPRINTF(MyDebug, "FALSE_from dispatch!\n");
+++				else{
+++					DPRINTF(MyDebug, "Control inst dispatched into ROB entry\n");
+++				}
+++			}			
+++			/////////////////////////////////////////////////////////////////////
+++
++ 
++             assert(rob->getThreadEntries(tid) <= rob->getMaxEntries(tid));
++ 
++@@ -1420,6 +1583,8 @@
++ //  SMT COMMIT POLICY MAINTAINED HERE //
++ //                                    //
++ ////////////////////////////////////////
+++
+++
++ template <class Impl>
++ ThreadID
++ DefaultCommit<Impl>::getCommittingThread()
++diff -urN ../../../../../gem5_original/src/cpu/o3/cpu.cc ./cpu.cc
++--- ../../../../../gem5_original/src/cpu/o3/cpu.cc	2017-11-02 18:43:35.000000000 +0900
+++++ ./cpu.cc	2017-12-21 11:00:28.726937615 +0900
++@@ -61,6 +61,8 @@
++ #include "debug/Drain.hh"
++ #include "debug/O3CPU.hh"
++ #include "debug/Quiesce.hh"
+++#include "debug/Progress.hh"
+++#include "debug/SMT.hh"
++ #include "enums/MemoryMode.hh"
++ #include "sim/core.hh"
++ #include "sim/full_system.hh"
++@@ -187,6 +189,26 @@
++       system(params->system),
++       lastRunningCycle(curCycle())
++ {
+++	total_cycle = 0;
+++
+++    for (ThreadID tid = 0; tid < numThreads; tid++) {
+++		DPRINTF(SMT, "Push back %d \n", tid);
+++		fmt_v.push_back(new FMT);
+++		I_miss_v.push_back(0);
+++		L2_miss_v.push_back(0);
+++		tlb_miss_v.push_back(0);
+++		branch_miss_v.push_back(0);
+++		wait_v.push_back(0);
+++		base_v.push_back(0);
+++		D1_miss_v.push_back(0);
+++		D2_miss_v.push_back(0);
+++		misc_v.push_back(0);
+++
+++		isROBblocked_v.push_back(false);
+++
+++		dslot.push_back(new Disp_slot);
+++	}
+++
++     if (!params->switched_out) {
++         _status = Running;
++     } else {
++@@ -557,6 +579,8 @@
++         .name(name() + ".misc_regfile_writes")
++         .desc("number of misc regfile writes")
++         .prereq(miscRegfileWrites);
+++
+++
++ }
++ 
++ template <class Impl>
++@@ -572,8 +596,65 @@
++ 
++ //    activity = false;
++ 
++-    //Tick each of the stages
++-    fetch.tick();
+++   	//Sehoon : adds up 1 to every branch entries in FMT
+++	//SehoonSMT
+++    ///////////////////////////////////////////////////
+++	    
+++	DPRINTF(SMT, "----------------------Tick %d-------------------------\n", total_cycle);
+++    
+++    
+++	for(ThreadID i = 0; i<numThreads; i++){
+++		fmt_v[i]->BranchUpdate(isROBblocked_v[i], decode.getDecodeWidth());
+++		fmt_v[i]->PrintEntry();	
+++	}
+++
+++	//update total cycles
+++	total_cycle++;
+++
+++	//reset
+++   	if(total_cycle%1000000 == 0){
+++		for(ThreadID i = 0; i<numThreads; i++){
+++			fmt_v[i]->ResetAll();
+++			DPRINTF(Progress, "RESET %d %d %d\n", fmt_v[i]->fetch, fmt_v[i]->dispatch_head, fmt_v[i]->dispatch_tail);
+++		}
+++	}
+++
+++	//debug progress
+++	if(total_cycle%100000 == 0){
+++        //DPRINTF(Progress, "Progress : %dM \n", total_cycle/100000);
+++        /*float l1 = (I_miss+0.0)/total_cycle*100;
+++        float d1 = (D1_miss+0.0)/total_cycle*100;
+++        float br = (branch_miss+0.0)/total_cycle*100;
+++        DPRINTF(Progress, "I-miss: %d (%.2f), branch-miss: %d (%.2f), D-miss: %d (%.2f), Base: (%.2f) \n", 
+++                I_miss, l1,
+++                branch_miss, br,
+++                D1_miss, d1, 100-(l1+br+d1));
+++		*/
+++        DPRINTF(Progress, "-------------------------------------------------- \n", total_cycle);
+++        DPRINTF(Progress, "Total Cycles :: %d \n", total_cycle);
+++		
+++		int l1, d1, br, w, b, m, total;
+++        
+++		for(ThreadID i=0; i<numThreads; i++){
+++			l1 = I_miss_v[i]/decode.getDecodeWidth();
+++   		    d1 = D1_miss_v[i]/decode.getDecodeWidth();
+++        	br = branch_miss_v[i]/decode.getDecodeWidth();
+++			w =  wait_v[i]/decode.getDecodeWidth();
+++			b =  base_v[i]/decode.getDecodeWidth();
+++			m =  0; // misc_v[i]/decode.getDecodeWidth();
+++			total = l1 + d1 + br + w + b + m;
+++        	DPRINTF(Progress, "Tread %d :: Base : %d, L1miss : %d, Branch : %d, D1miss : %d, Wait : %d, Misc : %d, Total : %d\n"
+++						  , i, b, l1, br, d1, w, m, total);
+++		}
+++	}    
+++
+++ 	//////////////////////////////////////////////////
+++
+++
+++
+++//Tick each of the atages
+++   
+++	fetch.tick();
++ 
++     decode.tick();
++ 
++Binary files ../../../../../gem5_original/src/cpu/o3/.cpu.cc.swp and ./.cpu.cc.swp differ
++diff -urN ../../../../../gem5_original/src/cpu/o3/cpu.hh ./cpu.hh
++--- ../../../../../gem5_original/src/cpu/o3/cpu.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./cpu.hh	2017-12-21 11:10:25.270353650 +0900
++@@ -65,6 +65,8 @@
++ #include "cpu/base.hh"
++ #include "cpu/simple_thread.hh"
++ #include "cpu/timebuf.hh"
+++#include "cpu/o3/fmt.hh"
+++#include "cpu/o3/disp_slot.hh"
++ //#include "cpu/o3/thread_context.hh"
++ #include "params/DerivO3CPU.hh"
++ #include "sim/process.hh"
++@@ -114,6 +116,29 @@
++ 
++     friend class O3ThreadContext<Impl>;
++ 
+++	//Sehoon
+++	//included
+++	std::vector<FMT*> fmt_v;
+++		    
+++	//stats SMT
+++	std::vector<int> I_miss_v;
+++	std::vector<int> branch_miss_v;
+++	std::vector<int> wait_v;
+++	std::vector<int> base_v;
+++	std::vector<int> D1_miss_v;
+++	std::vector<int> misc_v;
+++	std::vector<bool> isROBblocked_v;
+++
+++	//TODO: not implemented yet..
+++	std::vector<int> D2_miss_v;
+++	std::vector<int> L2_miss_v;
+++	std::vector<int> tlb_miss_v;
+++	
+++	int total_cycle;
+++
+++	//dispatch slot
+++	std::vector<Disp_slot*> dslot;
+++
++   public:
++     enum Status {
++         Running,
++@@ -799,6 +824,9 @@
++     //number of misc
++     Stats::Scalar miscRegfileReads;
++     Stats::Scalar miscRegfileWrites;
+++
+++	//Sehoon
+++
++ };
++ 
++ #endif // __CPU_O3_CPU_HH__
++diff -urN ../../../../../gem5_original/src/cpu/o3/decode.hh ./decode.hh
++--- ../../../../../gem5_original/src/cpu/o3/decode.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./decode.hh	2017-12-03 16:55:15.982805288 +0900
++@@ -201,7 +201,8 @@
++      * squashing and clears block/unblock signals as needed.
++      */
++     unsigned squash(ThreadID tid);
++-
+++	
+++    unsigned getDecodeWidth() { return decodeWidth; }
++   private:
++     // Interfaces to objects outside of decode.
++     /** CPU interface. */
++diff -urN ../../../../../gem5_original/src/cpu/o3/disp_slot.cc ./disp_slot.cc
++--- ../../../../../gem5_original/src/cpu/o3/disp_slot.cc	1970-01-01 09:00:00.000000000 +0900
+++++ ./disp_slot.cc	2017-12-21 10:54:40.955336232 +0900
++@@ -0,0 +1,26 @@
+++#include "disp_slot.hh"
+++#include "debug/SMT_Rename.hh"
+++#include <iostream>
+++
+++Disp_slot::Disp_slot(){
+++	base = 0;
+++	I_miss = 0;
+++	D_miss = 0;
+++	wait = 0;
+++	total = 0;
+++	misc = 0;
+++}
+++
+++void Disp_slot::print(){
+++//	std::cout<< "Base: "<<base<<", L miss :"<< L_miss << ", D miss :" << D_miss 
+++//		<<", Wait:" << wait << ", Total:" << total << std::endl;
+++}
+++
+++void Disp_slot::reset(){
+++	base = 0;
+++	I_miss = 0;
+++	D_miss = 0;
+++	wait = 0;
+++	total = 0;
+++	misc = 0;
+++}
++diff -urN ../../../../../gem5_original/src/cpu/o3/disp_slot.hh ./disp_slot.hh
++--- ../../../../../gem5_original/src/cpu/o3/disp_slot.hh	1970-01-01 09:00:00.000000000 +0900
+++++ ./disp_slot.hh	2017-12-21 10:54:22.363358928 +0900
++@@ -0,0 +1,20 @@
+++#ifndef _DISP_SLOT_
+++#define _DISP_SLOT_
+++
+++class Disp_slot {
+++
+++public:
+++	int base;
+++	int I_miss;
+++	int D_miss;
+++	int wait;
+++	int total;
+++	int misc;
+++
+++	Disp_slot();
+++	
+++	void print();
+++	void reset();
+++};
+++
+++#endif
++Binary files ../../../../../gem5_original/src/cpu/o3/.disp_slot.hh.swp and ./.disp_slot.hh.swp differ
++diff -urN ../../../../../gem5_original/src/cpu/o3/fetch_impl.hh ./fetch_impl.hh
++--- ../../../../../gem5_original/src/cpu/o3/fetch_impl.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./fetch_impl.hh	2017-12-21 09:58:53.147432386 +0900
++@@ -66,6 +66,7 @@
++ #include "debug/Drain.hh"
++ #include "debug/Fetch.hh"
++ #include "debug/O3PipeView.hh"
+++#include "debug/SMT.hh"
++ #include "mem/packet.hh"
++ #include "params/DerivO3CPU.hh"
++ #include "sim/byteswap.hh"
++@@ -563,6 +564,20 @@
++     }
++ 
++     ThreadID tid = inst->threadNumber;
+++    
+++
+++
+++	//SehoonSMT
+++	////////////////////////////////////////////
+++	DPRINTF(SMT, "Fetch Ptr Forwarded at tid : %d\n", tid);
+++	cpu->fmt_v[tid]->ForwardFetchPtr(inst->seqNum);
+++	
+++	///////////////////////////////////////////
+++
+++	//*****************************************//
+++	
+++
+++
++     predict_taken = branchPred->predict(inst->staticInst, inst->seqNum,
++                                         nextPC, tid);
++ 
++@@ -1159,13 +1174,16 @@
++     if (tid == InvalidThreadID) {
++         // Breaks looping condition in tick()
++         threadFetched = numFetchingThreads;
++-
++-        if (numThreads == 1) {  // @todo Per-thread stats
+++       
+++		if (numThreads == 1) {  // @todo Per-thread stats
++             profileStall(0);
++         }
++ 
++         return;
++     }
+++	
+++
+++	DPRINTF(SMT, "FETCH from %d\n", tid);
++ 
++     DPRINTF(Fetch, "Attempting to fetch from [tid:%i]\n", tid);
++ 
++@@ -1199,10 +1217,14 @@
++ 
++             fetchCacheLine(fetchAddr, tid, thisPC.instAddr());
++ 
++-            if (fetchStatus[tid] == IcacheWaitResponse)
+++            if (fetchStatus[tid] == IcacheWaitResponse){
++                 ++icacheStallCycles;
++-            else if (fetchStatus[tid] == ItlbWait)
+++			}
+++
+++			
+++            else if (fetchStatus[tid] == ItlbWait){
++                 ++fetchTlbCycles;
+++			}
++             else
++                 ++fetchMiscStallCycles;
++             return;
++@@ -1250,12 +1272,16 @@
++ 
++     const unsigned numInsts = fetchBufferSize / instSize;
++     unsigned blkOffset = (fetchAddr - fetchBufferPC[tid]) / instSize;
+++	
+++	//int count = fetchWidth;
++ 
++     // Loop through instruction memory from the cache.
++     // Keep issuing while fetchWidth is available and branch is not
++     // predicted taken
++     while (numInst < fetchWidth && fetchQueue[tid].size() < fetchQueueSize
++            && !predictedBranch && !quiesce) {
+++		
+++
++         // We need to process more memory if we aren't going to get a
++         // StaticInst from the rom, the current macroop, or what's already
++         // in the decoder.
++@@ -1387,6 +1413,8 @@
++         inRom = isRomMicroPC(thisPC.microPC());
++     }
++ 
+++	
+++
++     if (predictedBranch) {
++         DPRINTF(Fetch, "[tid:%i]: Done fetching, predicted branch "
++                 "instruction encountered.\n", tid);
++diff -urN ../../../../../gem5_original/src/cpu/o3/fmt.cc ./fmt.cc
++--- ../../../../../gem5_original/src/cpu/o3/fmt.cc	1970-01-01 09:00:00.000000000 +0900
+++++ ./fmt.cc	2017-12-04 00:45:18.683736193 +0900
++@@ -0,0 +1,352 @@
+++#include "fmt.hh"
+++#include "debug/FMT.hh"
+++#include <iostream>
+++
+++#define FMTDEBUG 0
+++#define FMTDEBUG_SMT 0
+++
+++FMT::FMT(){
+++	ResetAll();
+++}
+++
+++void FMT::ResetAll(){
+++	
+++	for(int i=0; i<size; i++)
+++		ResetEntry(i);
+++	dispatch_head = 0;
+++	dispatch_tail = 0;
+++	fetch = 0;
+++}
+++
+++void FMT::ResetEntry(int i){
+++
+++		FMTtable[i].instSeq = 0;
+++		FMTtable[i].mispredBit = false;
+++		FMTtable[i].branch = 0;
+++		FMTtable[i].L1 = 0;
+++		FMTtable[i].L2 = 0;
+++		FMTtable[i].tlb = 0;
+++		FMTtable[i].base = 0;
+++		FMTtable[i].wait = 0;
+++}
+++
+++
+++void FMT::PrintEntry(){
+++#if FMTDEBUG_SMT
+++	std::cout<<"Fetch Ptr : " << fetch
+++		<<" ::: Base : " << FMTtable[fetch].base
+++		<<", Wait : " << FMTtable[fetch].wait
+++		<<", L1miss : "<<FMTtable[fetch].L1
+++		<<", Branch : "<<FMTtable[dispatch_head].branch<<std::endl;
+++#endif
+++}
+++
+++
+++void FMT::SetCorrectWayFetching(bool b){
+++	correct_way_fetching = b;
+++}
+++
+++
+++//forward fetch pointer by one entry
+++int FMT::ForwardFetchPtr(InstSeqNum seq){
+++	++fetch;
+++	fetch = fetch % size;
+++	
+++	//for debugging purpose, return # of L1 miss
+++	int temp = FMTtable[fetch].L1;
+++	ResetEntry(fetch);
+++
+++	//set instruction sequence entry
+++	FMTtable[fetch].instSeq = seq;
+++
+++#if FMTDEBUG_SMT
+++	// std::cout<<"Fetch Ptr at "<<fetch<<std::endl;
+++#endif
+++
+++	return temp;
+++}
+++
+++//forward fetch pointer to ith entry
+++//this function is called @ branch mispred
+++//so do not reset entry
+++void FMT::ForwardFetchPtr(int i){
+++	fetch = i;
+++	//ResetEntry(fetch);
+++}
+++
+++//forward dispatch tail pointer by one entry
+++bool FMT::ForwardDispTailPtr(){
+++	if(dispatch_tail == fetch){ //cannot advance ahead the fetch pointer
+++		return false;
+++	}
+++	++dispatch_tail;
+++	dispatch_tail = dispatch_tail % size;
+++	return true;
+++}
+++
+++//forward dispatch tail pointer to ith entry
+++void FMT::ForwardDispTailPtr(int i){
+++	dispatch_tail = i;
+++}
+++
+++//forward dispatch head pointer by one entry
+++//return the entry info for update
+++FMTentry *FMT::ForwardDispHeadPtr(){
+++	++dispatch_head;
+++	dispatch_head = dispatch_head % size;
+++	return &(FMTtable[dispatch_head]);
+++}
+++
+++//forward dispatch tail pointer to ith entry
+++FMTentry *FMT::ForwardDispHeadPtr(int i){
+++	dispatch_head = i;
+++	return &(FMTtable[dispatch_head]);
+++}
+++
+++//add 1 for every pending branched
+++//in between dispatch head and tail
+++void FMT::BranchUpdate(bool isROBblocked){
+++	
+++	//avoid duplication count when ROB is blocked
+++	//due to Load miss or Store miss
+++
+++	if(isROBblocked){
+++		// std::cout<<"Mispred on D miss\n";
+++		return;
+++	}
+++
+++	if(dispatch_head==dispatch_tail){ // no branches in backend
+++		return;
+++	}
+++
+++	//count increase 1 per cycle
+++
+++	int _head = (dispatch_head+1)%size;
+++	while(true){
+++		if(!FMTtable[_head].mispredBit){
+++			++FMTtable[_head].branch;
+++		}
+++		else{
+++			if(correct_way_fetching){// fetching correct way
+++									 // add up penalty until next dispatch
+++				++FMTtable[_head].branch;
+++			}
+++		}
+++		if(_head==dispatch_tail) break;
+++		_head = (_head+1)%size;
+++	}
+++}
+++
+++void FMT::BranchUpdate(bool isROBblocked, int num){
+++	
+++	//avoid duplication count when ROB is blocked
+++	//due to Load miss or Store miss
+++
+++/*	if(!isROBblocked)
+++		std::cout<<"ARGHHHHHH"<<isROBblocked<<std::endl;
+++*/
+++
+++	if(isROBblocked){
+++		// std::cout<<"Mispred on D miss\n";
+++		return;
+++	}
+++
+++	if(dispatch_head==dispatch_tail){ // no branches in backend
+++		return;
+++	}
+++
+++	//count increase 'dispatchWidth number' per cycle
+++
+++	int _head = (dispatch_head+1)%size;
+++	while(true){
+++		if(!FMTtable[_head].mispredBit){
+++			FMTtable[_head].branch += num;
+++		}
+++		else{
+++			if(correct_way_fetching){// fetching correct way
+++									 // add up penalty until next dispatch
+++				FMTtable[_head].branch += num;
+++			}
+++		}
+++		if(_head==dispatch_tail) break;
+++		_head = (_head+1)%size;
+++	}
+++}
+++
+++
+++
+++//set MispredBit on the disp tail pointer
+++void FMT::SetMispredBitOnTail(){
+++	FMTtable[dispatch_tail].mispredBit = true;
+++}
+++
+++
+++//True if there are no branches in the pipeline
+++bool FMT::NoPendingBranch(){
+++	return (fetch==dispatch_head);
+++}
+++
+++//True if sequence number matches
+++bool FMT::CheckHeadSeq(InstSeqNum seq){
+++	
+++	// std::cout<<"compare : " << (dispatch_head+1)%size <<" head : " << FMTtable[(dispatch_head+1)%size].instSeq <<" squahsed : "<< seq << std::endl;
+++	if(dispatch_head==fetch){ // nothing in the pipeline
+++		return false;
+++	}
+++	return FMTtable[(dispatch_head+1)%size].instSeq == seq;
+++}
+++
+++//True if the entry is in the pipeline
+++bool FMT::IsInPipeline(int entry){
+++	if(dispatch_head == fetch){ // nothing in the pipeline
+++		return false;
+++	}
+++	
+++	int _dispatch_head = (dispatch_head + 1)%size;
+++	if(fetch >= _dispatch_head){
+++		if(entry <= _dispatch_head || entry >= fetch) return true;
+++	}
+++	else{
+++		if(entry <= fetch || entry >= _dispatch_head) return true;
+++	}
+++
+++	return true;
+++}
+++
+++//True if the pipeline is empty
+++bool FMT::IsPipelineEmpty(){
+++
+++#if FMTDEBUG_SMT
+++	std::cout<<fetch<<" "<<dispatch_head<<std::endl;
+++#endif
+++
+++	return dispatch_head==fetch;
+++}
+++
+++//True if the ROB is empty
+++bool FMT::IsROBEmpty(){
+++	return dispatch_head == dispatch_tail;
+++}
+++
+++//find entry of the given inst seqnuence number
+++int FMT::FindInst(InstSeqNum seq){
+++	//TODO : range b/w disp tail and disp head
+++
+++	if(dispatch_head==fetch) 
+++		return -1; // pipeline is empty
+++	
+++	int _head = (dispatch_head+1)%size;
+++
+++	if(_head <= fetch){
+++		for(int i=_head; i<=fetch; i++){
+++			if(FMTtable[i].instSeq == seq){
+++				return i;
+++			}
+++		}
+++	}
+++	else{ // _head > fetch
+++		for(int i=_head; i<size; i++){
+++			if(FMTtable[i].instSeq == seq){
+++				return i;
+++			}
+++		}
+++		for(int i=0; i<=fetch; i++){
+++			if(FMTtable[i].instSeq == seq){
+++				return i;
+++			}
+++		}
+++	}
+++	return -1;
+++}
+++
+++
+++//update L1 miss entry
+++void FMT::CountL1(){
+++	FMTtable[fetch].L1++;
+++}
+++
+++void FMT::CountL1(int n){
+++	FMTtable[fetch].L1 += n;
+++}
+++
+++void FMT::CountL1Disp(int n){
+++	FMTtable[dispatch_tail].L1 += n;
+++}
+++
+++//update L2 miss entry
+++void FMT::CountL2(){
+++	FMTtable[fetch].L2++;
+++}
+++
+++void FMT::CountL2(int n){
+++	FMTtable[fetch].L2 += n;
+++}
+++
+++void FMT::CountL2Disp(int n){
+++	FMTtable[dispatch_tail].L2 += n;
+++}
+++//update TLB miss entry
+++void FMT::CountTLB(){
+++	FMTtable[fetch].tlb++;
+++}
+++
+++void FMT::CountTLB(int n){
+++	FMTtable[fetch].tlb += n;
+++}
+++
+++void FMT::CountTLBDisp(int n){
+++	FMTtable[dispatch_tail].tlb += n;
+++}
+++
+++//update Base entry
+++void FMT::CountBase(){
+++	FMTtable[fetch].base++;
+++}
+++
+++void FMT::CountBase(int n){
+++	FMTtable[fetch].base += n;
+++}
+++
+++void FMT::CountBaseDisp(int n){
+++	FMTtable[dispatch_tail].base += n;
+++}
+++
+++//update Wait entry
+++void FMT::CountWait(){
+++	FMTtable[fetch].wait++;
+++}
+++
+++void FMT::CountWait(int n){
+++	FMTtable[fetch].wait += n;
+++}
+++
+++void FMT::CountWaitDisp(int n){
+++	FMTtable[dispatch_tail].wait += n;
+++}
+++
+++void FMT::CountMiscDisp(int n){
+++	FMTtable[dispatch_tail].misc += n;
+++}
+++
+++
+++
+++
+++/* DEBUGGING FUNCTIONS*/
+++
+++//print L1+L2 cahce miss and TLB miss
+++void FMT::DebugPrint(){
+++	
+++	/*DPRINTF(FMT, "(DEBUG FMT) Fetch : %d, Disp Tail : %d, Disp Head : %d \n",
+++			fetch, dispatch_tail, dispatch_head);
+++	*/
+++
+++#if FMTDEBUG
+++	std::cout<<"( DEBUG FMT ) Fetch : "<< fetch <<
+++		", Disp Tail : "<< dispatch_tail <<
+++		", Disp Head : "<< dispatch_head;
+++	std::cout << std::endl;
+++#endif
+++}
+++
+++
+++
++Binary files ../../../../../gem5_original/src/cpu/o3/.fmt.cc.swp and ./.fmt.cc.swp differ
++diff -urN ../../../../../gem5_original/src/cpu/o3/fmt.hh ./fmt.hh
++--- ../../../../../gem5_original/src/cpu/o3/fmt.hh	1970-01-01 09:00:00.000000000 +0900
+++++ ./fmt.hh	2017-12-04 00:45:18.011730224 +0900
++@@ -0,0 +1,93 @@
+++/* Author: Sehoon Kim */
+++
+++#ifndef __FMT__
+++#define __FMT__
+++
+++#include "cpu/inst_seq.hh"
+++#include "debug/FMT.hh"
+++
+++#define SIZE 50
+++typedef
+++struct _FMTentry{
+++	InstSeqNum instSeq;
+++	bool mispredBit;
+++	int branch;
+++	int L1;
+++	int L2;
+++	int tlb;
+++
+++	//for smt
+++	int base;
+++	int wait;
+++	int misc;
+++
+++} FMTentry;
+++
+++
+++class FMT{
+++	private:
+++		int size = SIZE;
+++		FMTentry FMTtable[SIZE];
+++
+++	public:
+++		/*pointer variables*/
+++		int dispatch_head;
+++		int dispatch_tail;
+++		int fetch;
+++		
+++		bool correct_way_fetching;
+++
+++	
+++		/* functions*/
+++		FMT();
+++		void ResetEntry(int i);
+++		void ResetAll();
+++	
+++		void SetCorrectWayFetching(bool b);
+++		bool GetCorrectWayFetching(){ return correct_way_fetching;}
+++		
+++		//forwarding pointer functions
+++		int ForwardFetchPtr(InstSeqNum seq);	
+++		void ForwardFetchPtr(int i);	
+++		bool ForwardDispTailPtr();
+++		void ForwardDispTailPtr(int i);	
+++		FMTentry *ForwardDispHeadPtr();
+++		FMTentry *ForwardDispHeadPtr(int i);
+++
+++		int FindInst(InstSeqNum seq);
+++
+++		void BranchUpdate(bool isROBblocked);
+++		void BranchUpdate(bool isROBblocked, int num);
+++		void SetMispredBitOnTail();
+++
+++		bool NoPendingBranch();
+++		bool CheckHeadSeq(InstSeqNum seq);
+++		bool IsInPipeline(int entry);
+++		bool IsPipelineEmpty();
+++		bool IsROBEmpty();
+++
+++		//L1, L2, TLB entry update
+++		void CountL1();
+++		void CountL2();
+++		void CountTLB();
+++		void CountBase();
+++		void CountWait();
+++
+++		void CountL1(int n);
+++		void CountL2(int n);
+++		void CountTLB(int n);
+++		void CountBase(int n);
+++		void CountWait(int n);
+++
+++		void CountL1Disp(int n);
+++		void CountL2Disp(int n);
+++		void CountTLBDisp(int n);
+++		void CountBaseDisp(int n);
+++		void CountWaitDisp(int n);
+++		void CountMiscDisp(int n);
+++		//Debug
+++		void PrintEntry();
+++		void DebugPrint();
+++};
+++
+++#endif
++diff -urN ../../../../../gem5_original/src/cpu/o3/rename.hh ./rename.hh
++--- ../../../../../gem5_original/src/cpu/o3/rename.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./rename.hh	2017-12-03 19:39:02.654971195 +0900
++@@ -112,7 +112,8 @@
++     };
++ 
++   private:
++-    /** Rename status. */
+++	
+++	/** Rename status. */
++     RenameStatus _status;
++ 
++     /** Per-thread status. */
++@@ -256,8 +257,11 @@
++ 
++     /** Renames the destination registers of an instruction. */
++     inline void renameDestRegs(DynInstPtr &inst, ThreadID tid);
++-
++-    /** Calculates the number of free ROB entries for a specific thread. */
+++	
+++	//SehoonSMT
+++	inline void checkROBBlocked();
+++	
+++	/** Calculates the number of free ROB entries for a specific thread. */
++     inline int calcFreeROBEntries(ThreadID tid);
++ 
++     /** Calculates the number of free IQ entries for a specific thread. */
++diff -urN ../../../../../gem5_original/src/cpu/o3/rename_impl.hh ./rename_impl.hh
++--- ../../../../../gem5_original/src/cpu/o3/rename_impl.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./rename_impl.hh	2017-12-21 11:02:04.390834380 +0900
++@@ -51,9 +51,12 @@
++ #include "arch/registers.hh"
++ #include "config/the_isa.hh"
++ #include "cpu/o3/rename.hh"
+++#include "cpu/o3/disp_slot.hh"
++ #include "cpu/reg_class.hh"
++ #include "debug/Activity.hh"
++ #include "debug/Rename.hh"
+++#include "debug/Progress.hh"
+++#include "debug/SMT_Rename.hh"
++ #include "debug/O3PipeView.hh"
++ #include "params/DerivO3CPU.hh"
++ 
++@@ -387,7 +390,15 @@
++ void
++ DefaultRename<Impl>::tick()
++ {
++-    wroteToTimeBuffer = false;
+++	//SehoonSMT
+++	//Dispatch slot init
+++	for(ThreadID i = 0;  i<numThreads; i++){
+++		cpu->dslot[i]->reset();
+++	}
+++
+++	DPRINTF(SMT_Rename, "--------------------------------cycle : %d\n", cpu->total_cycle);
+++	
+++	wroteToTimeBuffer = false;
++ 
++     blockThisCycle = false;
++ 
++@@ -397,7 +408,37 @@
++ 
++     sortInsts();
++ 
++-    list<ThreadID>::iterator threads = activeThreads->begin();
+++    
+++	//SehoonSMT :: count D1, L1 miss
+++
+++	for(ThreadID tid = 0; tid<numThreads; tid++){
+++
+++        //D1 miss
+++ 	   int count = calcFreeROBEntries(tid);
+++ 	   if(count<renameWidth){
+++ 	   		DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d free = %d/%d\n", tid, count, renameWidth);
+++ 	   		
+++ 	   		//update D1_miss
+++ 	   		cpu->D1_miss_v[tid] += renameWidth - count;
+++			cpu->dslot[tid]->D_miss += renameWidth - count;
+++ 	   		cpu->dslot[tid]->total += renameWidth - count;
+++ 	   }
+++ 
+++ 	   //L1 miss
+++ 	   int insts_available = renameStatus[tid] == Unblocking ?
+++ 	       skidBuffer[tid].size() : insts[tid].size();
+++ 	   int total = cpu->dslot[tid]->total;
+++ 
+++ 	   if(insts_available >= renameWidth-total){ // no L1 penalty
+++ 	   				
+++ 	   }
+++ 	   else{//insts_available < renameWidth-total
+++		   cpu->dslot[tid]->I_miss += renameWidth - total - insts_available;
+++		   cpu->dslot[tid]->total  += renameWidth - total - insts_available;
+++ 	   }
+++	}
+++	
+++	list<ThreadID>::iterator threads = activeThreads->begin();
++     list<ThreadID>::iterator end = activeThreads->end();
++ 
++     // Check stall and squash signals.
++@@ -445,12 +486,55 @@
++         assert(instsInProgress[tid] >=0);
++     }
++ 
+++	//if Total cycle > 8
+++	int temp;
+++	for(ThreadID i = 0; i<numThreads; i++){
+++		temp = cpu->dslot[i]->total;
+++		//if(temp < renameWidth){
+++			cpu->dslot[i]->misc = renameWidth - temp;
+++		//}
+++	}
+++
+++
+++	//SehoonSMT
+++	//debug :: print Dispatch slots
+++	for(ThreadID i = 0; i<numThreads; i++){
+++		DPRINTF(SMT_Rename, "TID : %d ::: ", i);
+++		cpu->dslot[i]->print();
+++	}
+++
+++	//update fmt
+++	for(ThreadID i = 0; i<numThreads; i++){
+++		if(cpu->fmt_v[i]->IsROBEmpty()){ // add directly to global penalty
+++			cpu->base_v[i] += cpu->dslot[i]->base;
+++			cpu->wait_v[i] += cpu->dslot[i]->wait;
+++			cpu->I_miss_v[i] += cpu->dslot[i]->I_miss;
+++			cpu->misc_v[i] += cpu->dslot[i]->misc;
+++		} else{ // add to local fmt entry
+++			cpu->fmt_v[i]->CountBaseDisp(cpu->dslot[i]->base);
+++			cpu->fmt_v[i]->CountWaitDisp(cpu->dslot[i]->wait);
+++			cpu->fmt_v[i]->CountL1Disp(cpu->dslot[i]->I_miss);
+++			cpu->fmt_v[i]->CountMiscDisp(cpu->dslot[i]->misc);
+++		}
+++	}
+++
+++	for(ThreadID i=0; i<numThreads; i++){
+++		DPRINTF(SMT_Rename, "TID %d :: base %d wait %d L %d D %d branch %d tot %d \n",
+++				i, cpu->base_v[i]/8, cpu->wait_v[i]/8, cpu->I_miss_v[i]/8, cpu->D1_miss_v[i]/8, cpu->branch_miss_v[i]/8, 
+++				 (cpu->base_v[i] + cpu->wait_v[i] + cpu->I_miss_v[i] + cpu->D1_miss_v[i]+cpu->branch_miss_v[i])/8);
+++
+++		DPRINTF(SMT_Rename, "fetch : %d, tail : %d, head : %d\n", 
+++				cpu->fmt_v[i]->fetch, cpu->fmt_v[i]->dispatch_tail, cpu->fmt_v[i]->dispatch_head);
+++	}	
+++
++ }
++ 
++ template<class Impl>
++ void
++ DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
++ {
+++
+++
++     // If status is Running or idle,
++     //     call renameInsts()
++     // If status is Unblocking,
++@@ -459,11 +543,17 @@
++     //     check if stall conditions have passed
++ 
++     if (renameStatus[tid] == Blocked) {
+++		//SehoonSMT : if blocked, all credit goes to D_miss
+++	//	DPRINTF(SMT_Rename, "BLOCK AGHHHHH\n");
++         ++renameBlockCycles;
++     } else if (renameStatus[tid] == Squashing) {
+++		//SehoonSMT : if squashed, don't count frontend miss count
+++	//	DPRINTF(SMT_Rename, "SQUASH AGHHHHH\n");
+++		cpu->dslot[tid]->reset();
++         ++renameSquashCycles;
++     } else if (renameStatus[tid] == SerializeStall) {
++         ++renameSerializeStallCycles;
+++	//	DPRINTF(SMT_Rename, "FUCK AGHHHHH\n");
++         // If we are currently in SerializeStall and resumeSerialize
++         // was set, then that means that we are resuming serializing
++         // this cycle.  Tell the previous stages to block.
++@@ -499,6 +589,10 @@
++         // an overall status change.
++         status_change = unblock(tid) || status_change || blockThisCycle;
++     }
+++	if(cpu->fmt_v[tid]->GetCorrectWayFetching()){
+++		//DPRINTF(SMT_Rename, "CorrectWayFetching\n");
+++	}
+++	//DPRINTF(SMT_Rename, "MIA :: %d\n", tid);
++ }
++ 
++ template <class Impl>
++@@ -510,6 +604,8 @@
++     int insts_available = renameStatus[tid] == Unblocking ?
++         skidBuffer[tid].size() : insts[tid].size();
++ 
+++	//DPRINTF(SMT_Rename, "inst avail TID %d :: %d %s\n", tid, insts_available, renameStatus[tid]? "unblock" : "block");
+++
++     // Check the decode queue to see if instructions are available.
++     // If there are no available instructions to rename, then do nothing.
++     if (insts_available == 0) {
++@@ -541,6 +637,10 @@
++ 
++     // Check if there's any space left.
++     if (min_free_entries <= 0) {
+++
+++		//SehoonSMT
+++
+++
++         DPRINTF(Rename, "[tid:%u]: Blocking due to no free ROB/IQ/ "
++                 "entries.\n"
++                 "ROB has %i free entries.\n"
++@@ -592,7 +692,30 @@
++     int renamed_insts = 0;
++ 
++     while (insts_available > 0 &&  toIEWIndex < renameWidth) {
++-        DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
+++    
+++		//SehoonSMT :: update base slot
+++		/////////////////////////////////////////////////////////
+++
+++		cpu->dslot[tid]->base++;
+++		cpu->dslot[tid]->total++;
+++
+++		// and wait slots of other threads
+++		for(ThreadID otid = 0; otid < numThreads; otid++){
+++			if(otid != tid){
+++				if(cpu->dslot[otid]->D_miss + cpu->dslot[otid]->I_miss 
+++						< cpu->dslot[tid]->base){
+++					cpu->dslot[otid]->wait++;
+++					cpu->dslot[otid]->total++;
+++				}
+++			}
+++		}
+++
+++		//debugs
+++		DPRINTF(SMT_Rename, "Rename TID : %d\n", tid);
+++
+++		/////////////////////////////////////////////////////////
+++		
+++		DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
++ 
++         assert(!insts_to_rename.empty());
++ 
++@@ -1119,12 +1242,15 @@
++     }
++ }
++ 
+++
+++
++ template <class Impl>
++ inline int
++ DefaultRename<Impl>::calcFreeROBEntries(ThreadID tid)
++ {
++     int num_free = freeEntries[tid].robEntries -
++                   (instsInProgress[tid] - fromIEW->iewInfo[tid].dispatched);
+++	//DPRINTF(Progress, "%d\n", num_free);
++ 
++     //DPRINTF(Rename,"[tid:%i]: %i rob free\n",tid,num_free);
++ 
++Binary files ../../../../../gem5_original/src/cpu/o3/.rename_impl.hh.swp and ./.rename_impl.hh.swp differ
++diff -urN ../../../../../gem5_original/src/cpu/o3/rob_impl.hh ./rob_impl.hh
++--- ../../../../../gem5_original/src/cpu/o3/rob_impl.hh	2017-11-02 18:43:35.000000000 +0900
+++++ ./rob_impl.hh	2017-12-03 16:55:15.990805282 +0900
++@@ -518,7 +518,6 @@
++ {
++     if (threadEntries[tid] != 0) {
++         InstIt head_thread = instList[tid].begin();
++-
++         assert((*head_thread)->isInROB());
++ 
++         return *head_thread;
++diff -urN ../../../../../gem5_original/src/cpu/o3/SConscript ./SConscript
++--- ../../../../../gem5_original/src/cpu/o3/SConscript	2017-11-02 18:43:35.000000000 +0900
+++++ ./SConscript	2017-12-03 18:36:59.365054774 +0900
++@@ -58,7 +58,9 @@
++     Source('scoreboard.cc')
++     Source('store_set.cc')
++     Source('thread_context.cc')
++-
+++    Source('fmt.cc')
+++    Source('disp_slot.cc')
+++    
++     DebugFlag('CommitRate')
++     DebugFlag('IEW')
++     DebugFlag('IQ')
++@@ -71,6 +73,12 @@
++     DebugFlag('Scoreboard')
++     DebugFlag('StoreSet')
++     DebugFlag('Writeback')
+++    DebugFlag('MyDebug')
+++    DebugFlag('FMT')
+++    DebugFlag('Progress')
+++    DebugFlag('SMT')
+++    DebugFlag('SMT_Commit')
+++    DebugFlag('SMT_Rename')
++ 
++     CompoundFlag('O3CPUAll', [ 'Fetch', 'Decode', 'Rename', 'IEW', 'Commit',
++         'IQ', 'ROB', 'FreeList', 'LSQ', 'LSQUnit', 'StoreSet', 'MemDepUnit',
+diff -urN ../../../../../gem5_original/src/cpu/o3/disp_slot.cc ./disp_slot.cc
+--- ../../../../../gem5_original/src/cpu/o3/disp_slot.cc	1970-01-01 09:00:00.000000000 +0900
++++ ./disp_slot.cc	2017-12-21 10:54:40.955336232 +0900
+@@ -0,0 +1,26 @@
++#include "disp_slot.hh"
++#include "debug/SMT_Rename.hh"
++#include <iostream>
++
++Disp_slot::Disp_slot(){
++	base = 0;
++	I_miss = 0;
++	D_miss = 0;
++	wait = 0;
++	total = 0;
++	misc = 0;
++}
++
++void Disp_slot::print(){
++//	std::cout<< "Base: "<<base<<", L miss :"<< L_miss << ", D miss :" << D_miss 
++//		<<", Wait:" << wait << ", Total:" << total << std::endl;
++}
++
++void Disp_slot::reset(){
++	base = 0;
++	I_miss = 0;
++	D_miss = 0;
++	wait = 0;
++	total = 0;
++	misc = 0;
++}
+diff -urN ../../../../../gem5_original/src/cpu/o3/disp_slot.hh ./disp_slot.hh
+--- ../../../../../gem5_original/src/cpu/o3/disp_slot.hh	1970-01-01 09:00:00.000000000 +0900
++++ ./disp_slot.hh	2017-12-21 10:54:22.363358928 +0900
+@@ -0,0 +1,20 @@
++#ifndef _DISP_SLOT_
++#define _DISP_SLOT_
++
++class Disp_slot {
++
++public:
++	int base;
++	int I_miss;
++	int D_miss;
++	int wait;
++	int total;
++	int misc;
++
++	Disp_slot();
++	
++	void print();
++	void reset();
++};
++
++#endif
+Binary files ../../../../../gem5_original/src/cpu/o3/.disp_slot.hh.swp and ./.disp_slot.hh.swp differ
+diff -urN ../../../../../gem5_original/src/cpu/o3/fetch_impl.hh ./fetch_impl.hh
+--- ../../../../../gem5_original/src/cpu/o3/fetch_impl.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./fetch_impl.hh	2017-12-21 09:58:53.147432386 +0900
+@@ -66,6 +66,7 @@
+ #include "debug/Drain.hh"
+ #include "debug/Fetch.hh"
+ #include "debug/O3PipeView.hh"
++#include "debug/SMT.hh"
+ #include "mem/packet.hh"
+ #include "params/DerivO3CPU.hh"
+ #include "sim/byteswap.hh"
+@@ -563,6 +564,20 @@
+     }
+ 
+     ThreadID tid = inst->threadNumber;
++    
++
++
++	//SehoonSMT
++	////////////////////////////////////////////
++	DPRINTF(SMT, "Fetch Ptr Forwarded at tid : %d\n", tid);
++	cpu->fmt_v[tid]->ForwardFetchPtr(inst->seqNum);
++	
++	///////////////////////////////////////////
++
++	//*****************************************//
++	
++
++
+     predict_taken = branchPred->predict(inst->staticInst, inst->seqNum,
+                                         nextPC, tid);
+ 
+@@ -1159,13 +1174,16 @@
+     if (tid == InvalidThreadID) {
+         // Breaks looping condition in tick()
+         threadFetched = numFetchingThreads;
+-
+-        if (numThreads == 1) {  // @todo Per-thread stats
++       
++		if (numThreads == 1) {  // @todo Per-thread stats
+             profileStall(0);
+         }
+ 
+         return;
+     }
++	
++
++	DPRINTF(SMT, "FETCH from %d\n", tid);
+ 
+     DPRINTF(Fetch, "Attempting to fetch from [tid:%i]\n", tid);
+ 
+@@ -1199,10 +1217,14 @@
+ 
+             fetchCacheLine(fetchAddr, tid, thisPC.instAddr());
+ 
+-            if (fetchStatus[tid] == IcacheWaitResponse)
++            if (fetchStatus[tid] == IcacheWaitResponse){
+                 ++icacheStallCycles;
+-            else if (fetchStatus[tid] == ItlbWait)
++			}
++
++			
++            else if (fetchStatus[tid] == ItlbWait){
+                 ++fetchTlbCycles;
++			}
+             else
+                 ++fetchMiscStallCycles;
+             return;
+@@ -1250,12 +1272,16 @@
+ 
+     const unsigned numInsts = fetchBufferSize / instSize;
+     unsigned blkOffset = (fetchAddr - fetchBufferPC[tid]) / instSize;
++	
++	//int count = fetchWidth;
+ 
+     // Loop through instruction memory from the cache.
+     // Keep issuing while fetchWidth is available and branch is not
+     // predicted taken
+     while (numInst < fetchWidth && fetchQueue[tid].size() < fetchQueueSize
+            && !predictedBranch && !quiesce) {
++		
++
+         // We need to process more memory if we aren't going to get a
+         // StaticInst from the rom, the current macroop, or what's already
+         // in the decoder.
+@@ -1387,6 +1413,8 @@
+         inRom = isRomMicroPC(thisPC.microPC());
+     }
+ 
++	
++
+     if (predictedBranch) {
+         DPRINTF(Fetch, "[tid:%i]: Done fetching, predicted branch "
+                 "instruction encountered.\n", tid);
+diff -urN ../../../../../gem5_original/src/cpu/o3/fmt.cc ./fmt.cc
+--- ../../../../../gem5_original/src/cpu/o3/fmt.cc	1970-01-01 09:00:00.000000000 +0900
++++ ./fmt.cc	2017-12-04 00:45:18.683736193 +0900
+@@ -0,0 +1,352 @@
++#include "fmt.hh"
++#include "debug/FMT.hh"
++#include <iostream>
++
++#define FMTDEBUG 0
++#define FMTDEBUG_SMT 0
++
++FMT::FMT(){
++	ResetAll();
++}
++
++void FMT::ResetAll(){
++	
++	for(int i=0; i<size; i++)
++		ResetEntry(i);
++	dispatch_head = 0;
++	dispatch_tail = 0;
++	fetch = 0;
++}
++
++void FMT::ResetEntry(int i){
++
++		FMTtable[i].instSeq = 0;
++		FMTtable[i].mispredBit = false;
++		FMTtable[i].branch = 0;
++		FMTtable[i].L1 = 0;
++		FMTtable[i].L2 = 0;
++		FMTtable[i].tlb = 0;
++		FMTtable[i].base = 0;
++		FMTtable[i].wait = 0;
++}
++
++
++void FMT::PrintEntry(){
++#if FMTDEBUG_SMT
++	std::cout<<"Fetch Ptr : " << fetch
++		<<" ::: Base : " << FMTtable[fetch].base
++		<<", Wait : " << FMTtable[fetch].wait
++		<<", L1miss : "<<FMTtable[fetch].L1
++		<<", Branch : "<<FMTtable[dispatch_head].branch<<std::endl;
++#endif
++}
++
++
++void FMT::SetCorrectWayFetching(bool b){
++	correct_way_fetching = b;
++}
++
++
++//forward fetch pointer by one entry
++int FMT::ForwardFetchPtr(InstSeqNum seq){
++	++fetch;
++	fetch = fetch % size;
++	
++	//for debugging purpose, return # of L1 miss
++	int temp = FMTtable[fetch].L1;
++	ResetEntry(fetch);
++
++	//set instruction sequence entry
++	FMTtable[fetch].instSeq = seq;
++
++#if FMTDEBUG_SMT
++	// std::cout<<"Fetch Ptr at "<<fetch<<std::endl;
++#endif
++
++	return temp;
++}
++
++//forward fetch pointer to ith entry
++//this function is called @ branch mispred
++//so do not reset entry
++void FMT::ForwardFetchPtr(int i){
++	fetch = i;
++	//ResetEntry(fetch);
++}
++
++//forward dispatch tail pointer by one entry
++bool FMT::ForwardDispTailPtr(){
++	if(dispatch_tail == fetch){ //cannot advance ahead the fetch pointer
++		return false;
++	}
++	++dispatch_tail;
++	dispatch_tail = dispatch_tail % size;
++	return true;
++}
++
++//forward dispatch tail pointer to ith entry
++void FMT::ForwardDispTailPtr(int i){
++	dispatch_tail = i;
++}
++
++//forward dispatch head pointer by one entry
++//return the entry info for update
++FMTentry *FMT::ForwardDispHeadPtr(){
++	++dispatch_head;
++	dispatch_head = dispatch_head % size;
++	return &(FMTtable[dispatch_head]);
++}
++
++//forward dispatch tail pointer to ith entry
++FMTentry *FMT::ForwardDispHeadPtr(int i){
++	dispatch_head = i;
++	return &(FMTtable[dispatch_head]);
++}
++
++//add 1 for every pending branched
++//in between dispatch head and tail
++void FMT::BranchUpdate(bool isROBblocked){
++	
++	//avoid duplication count when ROB is blocked
++	//due to Load miss or Store miss
++
++	if(isROBblocked){
++		// std::cout<<"Mispred on D miss\n";
++		return;
++	}
++
++	if(dispatch_head==dispatch_tail){ // no branches in backend
++		return;
++	}
++
++	//count increase 1 per cycle
++
++	int _head = (dispatch_head+1)%size;
++	while(true){
++		if(!FMTtable[_head].mispredBit){
++			++FMTtable[_head].branch;
++		}
++		else{
++			if(correct_way_fetching){// fetching correct way
++									 // add up penalty until next dispatch
++				++FMTtable[_head].branch;
++			}
++		}
++		if(_head==dispatch_tail) break;
++		_head = (_head+1)%size;
++	}
++}
++
++void FMT::BranchUpdate(bool isROBblocked, int num){
++	
++	//avoid duplication count when ROB is blocked
++	//due to Load miss or Store miss
++
++/*	if(!isROBblocked)
++		std::cout<<"ARGHHHHHH"<<isROBblocked<<std::endl;
++*/
++
++	if(isROBblocked){
++		// std::cout<<"Mispred on D miss\n";
++		return;
++	}
++
++	if(dispatch_head==dispatch_tail){ // no branches in backend
++		return;
++	}
++
++	//count increase 'dispatchWidth number' per cycle
++
++	int _head = (dispatch_head+1)%size;
++	while(true){
++		if(!FMTtable[_head].mispredBit){
++			FMTtable[_head].branch += num;
++		}
++		else{
++			if(correct_way_fetching){// fetching correct way
++									 // add up penalty until next dispatch
++				FMTtable[_head].branch += num;
++			}
++		}
++		if(_head==dispatch_tail) break;
++		_head = (_head+1)%size;
++	}
++}
++
++
++
++//set MispredBit on the disp tail pointer
++void FMT::SetMispredBitOnTail(){
++	FMTtable[dispatch_tail].mispredBit = true;
++}
++
++
++//True if there are no branches in the pipeline
++bool FMT::NoPendingBranch(){
++	return (fetch==dispatch_head);
++}
++
++//True if sequence number matches
++bool FMT::CheckHeadSeq(InstSeqNum seq){
++	
++	// std::cout<<"compare : " << (dispatch_head+1)%size <<" head : " << FMTtable[(dispatch_head+1)%size].instSeq <<" squahsed : "<< seq << std::endl;
++	if(dispatch_head==fetch){ // nothing in the pipeline
++		return false;
++	}
++	return FMTtable[(dispatch_head+1)%size].instSeq == seq;
++}
++
++//True if the entry is in the pipeline
++bool FMT::IsInPipeline(int entry){
++	if(dispatch_head == fetch){ // nothing in the pipeline
++		return false;
++	}
++	
++	int _dispatch_head = (dispatch_head + 1)%size;
++	if(fetch >= _dispatch_head){
++		if(entry <= _dispatch_head || entry >= fetch) return true;
++	}
++	else{
++		if(entry <= fetch || entry >= _dispatch_head) return true;
++	}
++
++	return true;
++}
++
++//True if the pipeline is empty
++bool FMT::IsPipelineEmpty(){
++
++#if FMTDEBUG_SMT
++	std::cout<<fetch<<" "<<dispatch_head<<std::endl;
++#endif
++
++	return dispatch_head==fetch;
++}
++
++//True if the ROB is empty
++bool FMT::IsROBEmpty(){
++	return dispatch_head == dispatch_tail;
++}
++
++//find entry of the given inst seqnuence number
++int FMT::FindInst(InstSeqNum seq){
++	//TODO : range b/w disp tail and disp head
++
++	if(dispatch_head==fetch) 
++		return -1; // pipeline is empty
++	
++	int _head = (dispatch_head+1)%size;
++
++	if(_head <= fetch){
++		for(int i=_head; i<=fetch; i++){
++			if(FMTtable[i].instSeq == seq){
++				return i;
++			}
++		}
++	}
++	else{ // _head > fetch
++		for(int i=_head; i<size; i++){
++			if(FMTtable[i].instSeq == seq){
++				return i;
++			}
++		}
++		for(int i=0; i<=fetch; i++){
++			if(FMTtable[i].instSeq == seq){
++				return i;
++			}
++		}
++	}
++	return -1;
++}
++
++
++//update L1 miss entry
++void FMT::CountL1(){
++	FMTtable[fetch].L1++;
++}
++
++void FMT::CountL1(int n){
++	FMTtable[fetch].L1 += n;
++}
++
++void FMT::CountL1Disp(int n){
++	FMTtable[dispatch_tail].L1 += n;
++}
++
++//update L2 miss entry
++void FMT::CountL2(){
++	FMTtable[fetch].L2++;
++}
++
++void FMT::CountL2(int n){
++	FMTtable[fetch].L2 += n;
++}
++
++void FMT::CountL2Disp(int n){
++	FMTtable[dispatch_tail].L2 += n;
++}
++//update TLB miss entry
++void FMT::CountTLB(){
++	FMTtable[fetch].tlb++;
++}
++
++void FMT::CountTLB(int n){
++	FMTtable[fetch].tlb += n;
++}
++
++void FMT::CountTLBDisp(int n){
++	FMTtable[dispatch_tail].tlb += n;
++}
++
++//update Base entry
++void FMT::CountBase(){
++	FMTtable[fetch].base++;
++}
++
++void FMT::CountBase(int n){
++	FMTtable[fetch].base += n;
++}
++
++void FMT::CountBaseDisp(int n){
++	FMTtable[dispatch_tail].base += n;
++}
++
++//update Wait entry
++void FMT::CountWait(){
++	FMTtable[fetch].wait++;
++}
++
++void FMT::CountWait(int n){
++	FMTtable[fetch].wait += n;
++}
++
++void FMT::CountWaitDisp(int n){
++	FMTtable[dispatch_tail].wait += n;
++}
++
++void FMT::CountMiscDisp(int n){
++	FMTtable[dispatch_tail].misc += n;
++}
++
++
++
++
++/* DEBUGGING FUNCTIONS*/
++
++//print L1+L2 cahce miss and TLB miss
++void FMT::DebugPrint(){
++	
++	/*DPRINTF(FMT, "(DEBUG FMT) Fetch : %d, Disp Tail : %d, Disp Head : %d \n",
++			fetch, dispatch_tail, dispatch_head);
++	*/
++
++#if FMTDEBUG
++	std::cout<<"( DEBUG FMT ) Fetch : "<< fetch <<
++		", Disp Tail : "<< dispatch_tail <<
++		", Disp Head : "<< dispatch_head;
++	std::cout << std::endl;
++#endif
++}
++
++
++
+Binary files ../../../../../gem5_original/src/cpu/o3/.fmt.cc.swp and ./.fmt.cc.swp differ
+diff -urN ../../../../../gem5_original/src/cpu/o3/fmt.hh ./fmt.hh
+--- ../../../../../gem5_original/src/cpu/o3/fmt.hh	1970-01-01 09:00:00.000000000 +0900
++++ ./fmt.hh	2017-12-04 00:45:18.011730224 +0900
+@@ -0,0 +1,93 @@
++/* Author: Sehoon Kim */
++
++#ifndef __FMT__
++#define __FMT__
++
++#include "cpu/inst_seq.hh"
++#include "debug/FMT.hh"
++
++#define SIZE 50
++typedef
++struct _FMTentry{
++	InstSeqNum instSeq;
++	bool mispredBit;
++	int branch;
++	int L1;
++	int L2;
++	int tlb;
++
++	//for smt
++	int base;
++	int wait;
++	int misc;
++
++} FMTentry;
++
++
++class FMT{
++	private:
++		int size = SIZE;
++		FMTentry FMTtable[SIZE];
++
++	public:
++		/*pointer variables*/
++		int dispatch_head;
++		int dispatch_tail;
++		int fetch;
++		
++		bool correct_way_fetching;
++
++	
++		/* functions*/
++		FMT();
++		void ResetEntry(int i);
++		void ResetAll();
++	
++		void SetCorrectWayFetching(bool b);
++		bool GetCorrectWayFetching(){ return correct_way_fetching;}
++		
++		//forwarding pointer functions
++		int ForwardFetchPtr(InstSeqNum seq);	
++		void ForwardFetchPtr(int i);	
++		bool ForwardDispTailPtr();
++		void ForwardDispTailPtr(int i);	
++		FMTentry *ForwardDispHeadPtr();
++		FMTentry *ForwardDispHeadPtr(int i);
++
++		int FindInst(InstSeqNum seq);
++
++		void BranchUpdate(bool isROBblocked);
++		void BranchUpdate(bool isROBblocked, int num);
++		void SetMispredBitOnTail();
++
++		bool NoPendingBranch();
++		bool CheckHeadSeq(InstSeqNum seq);
++		bool IsInPipeline(int entry);
++		bool IsPipelineEmpty();
++		bool IsROBEmpty();
++
++		//L1, L2, TLB entry update
++		void CountL1();
++		void CountL2();
++		void CountTLB();
++		void CountBase();
++		void CountWait();
++
++		void CountL1(int n);
++		void CountL2(int n);
++		void CountTLB(int n);
++		void CountBase(int n);
++		void CountWait(int n);
++
++		void CountL1Disp(int n);
++		void CountL2Disp(int n);
++		void CountTLBDisp(int n);
++		void CountBaseDisp(int n);
++		void CountWaitDisp(int n);
++		void CountMiscDisp(int n);
++		//Debug
++		void PrintEntry();
++		void DebugPrint();
++};
++
++#endif
+diff -urN ../../../../../gem5_original/src/cpu/o3/rename.hh ./rename.hh
+--- ../../../../../gem5_original/src/cpu/o3/rename.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./rename.hh	2017-12-03 19:39:02.654971195 +0900
+@@ -112,7 +112,8 @@
+     };
+ 
+   private:
+-    /** Rename status. */
++	
++	/** Rename status. */
+     RenameStatus _status;
+ 
+     /** Per-thread status. */
+@@ -256,8 +257,11 @@
+ 
+     /** Renames the destination registers of an instruction. */
+     inline void renameDestRegs(DynInstPtr &inst, ThreadID tid);
+-
+-    /** Calculates the number of free ROB entries for a specific thread. */
++	
++	//SehoonSMT
++	inline void checkROBBlocked();
++	
++	/** Calculates the number of free ROB entries for a specific thread. */
+     inline int calcFreeROBEntries(ThreadID tid);
+ 
+     /** Calculates the number of free IQ entries for a specific thread. */
+diff -urN ../../../../../gem5_original/src/cpu/o3/rename_impl.hh ./rename_impl.hh
+--- ../../../../../gem5_original/src/cpu/o3/rename_impl.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./rename_impl.hh	2017-12-21 14:04:37.457272960 +0900
+@@ -51,9 +51,12 @@
+ #include "arch/registers.hh"
+ #include "config/the_isa.hh"
+ #include "cpu/o3/rename.hh"
++#include "cpu/o3/disp_slot.hh"
+ #include "cpu/reg_class.hh"
+ #include "debug/Activity.hh"
+ #include "debug/Rename.hh"
++#include "debug/Progress.hh"
++#include "debug/SMT_Rename.hh"
+ #include "debug/O3PipeView.hh"
+ #include "params/DerivO3CPU.hh"
+ 
+@@ -387,7 +390,15 @@
+ void
+ DefaultRename<Impl>::tick()
+ {
+-    wroteToTimeBuffer = false;
++	//SehoonSMT
++	//Dispatch slot init
++	for(ThreadID i = 0;  i<numThreads; i++){
++		cpu->dslot[i]->reset();
++	}
++
++	DPRINTF(SMT_Rename, "--------------------------------cycle : %d\n", cpu->total_cycle);
++	
++	wroteToTimeBuffer = false;
+ 
+     blockThisCycle = false;
+ 
+@@ -397,7 +408,37 @@
+ 
+     sortInsts();
+ 
+-    list<ThreadID>::iterator threads = activeThreads->begin();
++    
++	//SehoonSMT :: count D1, L1 miss
++
++	for(ThreadID tid = 0; tid<numThreads; tid++){
++
++        //D1 miss
++ 	   int count = calcFreeROBEntries(tid);
++ 	   if(count<renameWidth){
++ 	   		DPRINTF(SMT_Rename, "Blocked by D miss event :: TID : %d free = %d/%d\n", tid, count, renameWidth);
++ 	   		
++ 	   		//update D1_miss
++ 	   		cpu->D1_miss_v[tid] += renameWidth - count;
++			cpu->dslot[tid]->D_miss += renameWidth - count;
++ 	   		cpu->dslot[tid]->total += renameWidth - count;
++ 	   }
++ 
++ 	   //L1 miss
++ 	   int insts_available = renameStatus[tid] == Unblocking ?
++ 	       skidBuffer[tid].size() : insts[tid].size();
++ 	   int total = cpu->dslot[tid]->total;
++ 
++ 	   if(insts_available >= renameWidth-total){ // no L1 penalty
++ 	   				
++ 	   }
++ 	   else{//insts_available < renameWidth-total
++		   cpu->dslot[tid]->I_miss += renameWidth - total - insts_available;
++		   cpu->dslot[tid]->total  += renameWidth - total - insts_available;
++ 	   }
++	}
++	
++	list<ThreadID>::iterator threads = activeThreads->begin();
+     list<ThreadID>::iterator end = activeThreads->end();
+ 
+     // Check stall and squash signals.
+@@ -445,12 +486,55 @@
+         assert(instsInProgress[tid] >=0);
+     }
+ 
++	//if Total cycle > 8
++	int temp;
++	for(ThreadID i = 0; i<numThreads; i++){
++		temp = cpu->dslot[i]->total;
++		//if(temp < renameWidth){
++			cpu->dslot[i]->misc = renameWidth - temp;
++		//}
++	}
++
++
++	//SehoonSMT
++	//debug :: print Dispatch slots
++	for(ThreadID i = 0; i<numThreads; i++){
++		DPRINTF(SMT_Rename, "TID : %d ::: ", i);
++		cpu->dslot[i]->print();
++	}
++
++	//update fmt
++	for(ThreadID i = 0; i<numThreads; i++){
++		if(cpu->fmt_v[i]->IsROBEmpty()){ // add directly to global penalty
++			cpu->base_v[i] += cpu->dslot[i]->base;
++			cpu->wait_v[i] += cpu->dslot[i]->wait;
++			cpu->I_miss_v[i] += cpu->dslot[i]->I_miss;
++			cpu->misc_v[i] += cpu->dslot[i]->misc;
++		} else{ // add to local fmt entry
++			cpu->fmt_v[i]->CountBaseDisp(cpu->dslot[i]->base);
++			cpu->fmt_v[i]->CountWaitDisp(cpu->dslot[i]->wait);
++			cpu->fmt_v[i]->CountL1Disp(cpu->dslot[i]->I_miss);
++			cpu->fmt_v[i]->CountMiscDisp(cpu->dslot[i]->misc);
++		}
++	}
++
++	for(ThreadID i=0; i<numThreads; i++){
++		DPRINTF(SMT_Rename, "TID %d :: base %d wait %d L %d D %d branch %d tot %d \n",
++				i, cpu->base_v[i]/8, cpu->wait_v[i]/8, cpu->I_miss_v[i]/8, cpu->D1_miss_v[i]/8, cpu->branch_miss_v[i]/8, 
++				 (cpu->base_v[i] + cpu->wait_v[i] + cpu->I_miss_v[i] + cpu->D1_miss_v[i]+cpu->branch_miss_v[i])/8);
++
++		DPRINTF(SMT_Rename, "fetch : %d, tail : %d, head : %d\n", 
++				cpu->fmt_v[i]->fetch, cpu->fmt_v[i]->dispatch_tail, cpu->fmt_v[i]->dispatch_head);
++	}	
++
+ }
+ 
+ template<class Impl>
+ void
+ DefaultRename<Impl>::rename(bool &status_change, ThreadID tid)
+ {
++
++
+     // If status is Running or idle,
+     //     call renameInsts()
+     // If status is Unblocking,
+@@ -459,8 +543,11 @@
+     //     check if stall conditions have passed
+ 
+     if (renameStatus[tid] == Blocked) {
++		//SehoonSMT : if blocked, all credit goes to D_miss
+         ++renameBlockCycles;
+     } else if (renameStatus[tid] == Squashing) {
++		//SehoonSMT : if squashed, don't count frontend miss count
++		cpu->dslot[tid]->reset();
+         ++renameSquashCycles;
+     } else if (renameStatus[tid] == SerializeStall) {
+         ++renameSerializeStallCycles;
+@@ -499,6 +586,10 @@
+         // an overall status change.
+         status_change = unblock(tid) || status_change || blockThisCycle;
+     }
++	if(cpu->fmt_v[tid]->GetCorrectWayFetching()){
++		//DPRINTF(SMT_Rename, "CorrectWayFetching\n");
++	}
++	//DPRINTF(SMT_Rename, "MIA :: %d\n", tid);
+ }
+ 
+ template <class Impl>
+@@ -510,6 +601,8 @@
+     int insts_available = renameStatus[tid] == Unblocking ?
+         skidBuffer[tid].size() : insts[tid].size();
+ 
++	//DPRINTF(SMT_Rename, "inst avail TID %d :: %d %s\n", tid, insts_available, renameStatus[tid]? "unblock" : "block");
++
+     // Check the decode queue to see if instructions are available.
+     // If there are no available instructions to rename, then do nothing.
+     if (insts_available == 0) {
+@@ -541,6 +634,10 @@
+ 
+     // Check if there's any space left.
+     if (min_free_entries <= 0) {
++
++		//SehoonSMT
++
++
+         DPRINTF(Rename, "[tid:%u]: Blocking due to no free ROB/IQ/ "
+                 "entries.\n"
+                 "ROB has %i free entries.\n"
+@@ -592,7 +689,30 @@
+     int renamed_insts = 0;
+ 
+     while (insts_available > 0 &&  toIEWIndex < renameWidth) {
+-        DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
++    
++		//SehoonSMT :: update base slot
++		/////////////////////////////////////////////////////////
++
++		cpu->dslot[tid]->base++;
++		cpu->dslot[tid]->total++;
++
++		// and wait slots of other threads
++		for(ThreadID otid = 0; otid < numThreads; otid++){
++			if(otid != tid){
++				if(cpu->dslot[otid]->D_miss + cpu->dslot[otid]->I_miss 
++						< cpu->dslot[tid]->base){
++					cpu->dslot[otid]->wait++;
++					cpu->dslot[otid]->total++;
++				}
++			}
++		}
++
++		//debugs
++		DPRINTF(SMT_Rename, "Rename TID : %d\n", tid);
++
++		/////////////////////////////////////////////////////////
++		
++		DPRINTF(Rename, "[tid:%u]: Sending instructions to IEW.\n", tid);
+ 
+         assert(!insts_to_rename.empty());
+ 
+@@ -1119,12 +1239,15 @@
+     }
+ }
+ 
++
++
+ template <class Impl>
+ inline int
+ DefaultRename<Impl>::calcFreeROBEntries(ThreadID tid)
+ {
+     int num_free = freeEntries[tid].robEntries -
+                   (instsInProgress[tid] - fromIEW->iewInfo[tid].dispatched);
++	//DPRINTF(Progress, "%d\n", num_free);
+ 
+     //DPRINTF(Rename,"[tid:%i]: %i rob free\n",tid,num_free);
+ 
+Binary files ../../../../../gem5_original/src/cpu/o3/.rename_impl.hh.swp and ./.rename_impl.hh.swp differ
+diff -urN ../../../../../gem5_original/src/cpu/o3/rob_impl.hh ./rob_impl.hh
+--- ../../../../../gem5_original/src/cpu/o3/rob_impl.hh	2017-11-02 18:43:35.000000000 +0900
++++ ./rob_impl.hh	2017-12-03 16:55:15.990805282 +0900
+@@ -518,7 +518,6 @@
+ {
+     if (threadEntries[tid] != 0) {
+         InstIt head_thread = instList[tid].begin();
+-
+         assert((*head_thread)->isInROB());
+ 
+         return *head_thread;
+diff -urN ../../../../../gem5_original/src/cpu/o3/SConscript ./SConscript
+--- ../../../../../gem5_original/src/cpu/o3/SConscript	2017-11-02 18:43:35.000000000 +0900
++++ ./SConscript	2017-12-03 18:36:59.365054774 +0900
+@@ -58,7 +58,9 @@
+     Source('scoreboard.cc')
+     Source('store_set.cc')
+     Source('thread_context.cc')
+-
++    Source('fmt.cc')
++    Source('disp_slot.cc')
++    
+     DebugFlag('CommitRate')
+     DebugFlag('IEW')
+     DebugFlag('IQ')
+@@ -71,6 +73,12 @@
+     DebugFlag('Scoreboard')
+     DebugFlag('StoreSet')
+     DebugFlag('Writeback')
++    DebugFlag('MyDebug')
++    DebugFlag('FMT')
++    DebugFlag('Progress')
++    DebugFlag('SMT')
++    DebugFlag('SMT_Commit')
++    DebugFlag('SMT_Rename')
+ 
+     CompoundFlag('O3CPUAll', [ 'Fetch', 'Decode', 'Rename', 'IEW', 'Commit',
+         'IQ', 'ROB', 'FreeList', 'LSQ', 'LSQUnit', 'StoreSet', 'MemDepUnit',

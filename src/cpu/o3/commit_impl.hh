@@ -1019,53 +1019,14 @@ DefaultCommit<Impl>::commitInsts()
 
         ThreadID commit_thread = getCommittingThread();
 
-		//Sehoon
-		/////////////////////////////WHEN ROB IS BLOCKED///////////////////////
-		
-		//TODO : count only when ROB is blocked
-		// not when ROB is empty..
-		
-		// TODO TODO TODO
-		// !!!!!!!!!!!!!!!!!!!!!!!!!MUST BE MODIFIED!!!!!!!!!!!!!!!!!!!!!
 
 		if (commit_thread == InvalidThreadID || !rob->isHeadReady(commit_thread)){
 	
-			/*
-			if(commit_thread != InvalidThreadID && !rob->isEmpty(commit_thread)){
-
-				head_inst = rob->readHeadInst(commit_thread);
-				
-				//if blocked by Load or Store
-				
-				if(!head_inst->isSquashed() && (head_inst->isLoad() || head_inst->isStore())){
-					cpu->isROBblocked = true;
-					cpu->D1_miss++;
-					cpu->D1_miss_stat++;
-					DPRINTF(MyDebug, "Head Blocked @ %d, inst type : %s, Dmiss penalty : %d \n", 
-							cpu->total_cycle, head_inst->isLoad() ? "Load" : 
-							head_inst->isStore() ?  "Store" : "NonMem", cpu->D1_miss);  
-		
-					//SehoonSMT
-					///////////////////////////////////////
-					
-					cpu->isROBblocked_v[commit_thread] = true;
-					cpu->D1_miss_v[commit_thread] = true;
-					DPRINTF(SMT_Commit, "Head Blocked at tid : %d\n", commit_thread);
-
-					//////////////////////////////////////
-				}
-
-			}    
-			*/
-
 			break;
 			
 		}    
 		
 		head_inst = rob->readHeadInst(commit_thread);
-		
-		//cpu->isROBblocked = false;
-		//cpu->isROBblocked_v[commit_thread] = false;
 		
 
 		//SehoonSMT
@@ -1086,7 +1047,7 @@ DefaultCommit<Impl>::commitInsts()
 				}
 
 				//add cache and TLB miss penalty
-				cpu->L1_miss_v[commit_thread] += entry->L1;
+				cpu->I_miss_v[commit_thread] += entry->L1;
 				cpu->L2_miss_v[commit_thread]  += entry->L2;
 				cpu->tlb_miss_v[commit_thread] += entry->tlb;
 				cpu->base_v[commit_thread] += entry->base;
@@ -1107,7 +1068,7 @@ DefaultCommit<Impl>::commitInsts()
 					while(newhead_entry != cpu->fmt_v[commit_thread]->dispatch_head){
 						entry = cpu->fmt_v[commit_thread]->ForwardDispHeadPtr();
 
-						cpu->L1_miss_v[commit_thread] += entry->L1;
+						cpu->I_miss_v[commit_thread] += entry->L1;
 						cpu->L2_miss_v[commit_thread] += entry->L2;
 						cpu->tlb_miss_v[commit_thread] += entry->tlb;
 						cpu->base_v[commit_thread] += entry->base;
@@ -1122,7 +1083,7 @@ DefaultCommit<Impl>::commitInsts()
 					}
 
 					//add cache and TLB miss penalty
-					cpu->L1_miss_v[commit_thread] += entry->L1;
+					cpu->I_miss_v[commit_thread] += entry->L1;
 					cpu->L2_miss_v[commit_thread] += entry->L2;
 					cpu->tlb_miss_v[commit_thread] += entry->tlb;
 					cpu->base_v[commit_thread] += entry->base;

@@ -121,16 +121,18 @@ class FullO3CPU : public BaseO3CPU
 	std::vector<FMT*> fmt_v;
 		    
 	//stats SMT
-	std::vector<int> L1_miss_v;
-	std::vector<int> L2_miss_v;
-	std::vector<int> tlb_miss_v;
+	std::vector<int> I_miss_v;
 	std::vector<int> branch_miss_v;
 	std::vector<int> wait_v;
 	std::vector<int> base_v;
 	std::vector<int> D1_miss_v;
-	std::vector<int> D2_miss_v;
 	std::vector<int> misc_v;
 	std::vector<bool> isROBblocked_v;
+
+	//TODO: not implemented yet..
+	std::vector<int> D2_miss_v;
+	std::vector<int> L2_miss_v;
+	std::vector<int> tlb_miss_v;
 	
 	int total_cycle;
 
